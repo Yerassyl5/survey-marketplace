@@ -6,14 +6,16 @@
 ---
 
 ## Каркас проекта (до Волны 1)
-- [ ] Инициализация репозитория Django + Next.js (монорепо или раздельно — решить)
-- [ ] docker-compose.yml (Postgres+PostGIS+pgvector, Redis, MinIO, Django, Next.js, Celery)
-- [ ] Кастомный Dockerfile для Postgres (PostGIS + pgvector)
-- [ ] Django-образ с системными GDAL/GEOS/PROJ
-- [ ] .env.example
-- [ ] Базовый каркас модулей-приложений Django (accounts, sites, marketplace, contracts, reputation, geo, notifications, billing)
-- [ ] Базовый каркас Next.js (App Router, next-intl, маршрутизация /kk /ru /en)
-- [ ] CSS-токены для тёмной/светлой темы
+- [x] Инициализация репозитория: монорепо (backend/, frontend/ в одном Git-репо)
+- [x] docker-compose.yml (Postgres+PostGIS+pgvector, Redis, MinIO, Django, Next.js, Celery worker+beat)
+- [x] Кастомный Dockerfile для Postgres (PostGIS + pgvector, собран без LLVM bitcode — toolchain thinlink недоступен в базовом образе)
+- [x] Django-образ с системными GDAL/GEOS/PROJ
+- [x] .env.example
+- [x] Базовый каркас модулей-приложений Django (accounts, sites, marketplace, contracts, reputation, geo, notifications, billing, analytics)
+- [x] Механизм доменных событий: единый интерфейс publish/subscribe в каждом app (events.py), по architecture.md §5
+- [x] Базовый каркас Next.js (App Router, next-intl, маршрутизация /kk /ru /en) — зависимости фронтенда только в frontend/, не в корне репозитория
+- [x] CSS-токены для тёмной/светлой темы (data-theme атрибут, переключение темы вручную — позже)
+- [x] Проверка: docker-compose up поднимает все 7 сервисов; backend /admin/ → 200; frontend / → 307 на /ru, /ru → 200
 
 ---
 
@@ -87,7 +89,8 @@
 ---
 
 ## Текущий фокус
-_(заполняется в начале/конце каждой сессии)_
+Каркас проекта собран и проверен. Следующий шаг — пункты Волны 1 по одному (начать с 1.1).
 
 ## Известные риски / открытые вопросы
 - Блокировать ли отклик неверифицированного исполнителя жёстко или просто помечать — решить в 1.2.
+- **Рабочая директория проекта — `C:\Project`, не `D:\EOSpatial\2026\Startup\Project`.** Диск D: на этой машине — съёмная флешка, WSL2 не монтирует её автоматически, из-за чего bind-mount в docker-compose видел пустую директорию вместо кода. Старая копия на D: осталась нетронутой (решение об удалении — за пользователем).

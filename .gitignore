@@ -4,6 +4,7 @@
 !.env.example
 
 # Python / Django
+celerybeat-schedule
 __pycache__/
 *.py[cod]
 *$py.class
