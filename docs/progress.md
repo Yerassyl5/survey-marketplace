@@ -95,6 +95,7 @@
 Пункт 1.1 («Регистрация и роли») реализован: кастомная модель `User` (логин по email, роли customer/contractor, ручной ввод ФИО/ИИН/БИН/почта/телефон) + `ContractorProfile` (license_number, attestation_number, license_expiry, verification_status=pending по умолчанию, verification_method). Эндпоинты `POST /api/accounts/register/customer/` и `/register/contractor/` проверены через curl. Подключён drf-spectacular (`/api/docs/`, `/api/schema/`). `.http`-примеры — `backend/apps/accounts/requests.http`.
 Локальная Postgres-БД была пересоздана (переход на `AUTH_USER_MODEL`), создан новый суперпользователь `admin@eospatial.kz` для Django Admin.
 Следующий шаг — 1.2 (ручная верификация исполнителя через Django Admin: загрузка документов, проставление статуса).
+Репозиторий подключён к GitHub: https://github.com/Yerassyl5/survey-marketplace.git (origin/master).
 
 ## Волна деплоя / продакшен — статус: не начато
 > Целевой прод-стек описан в `docs/architecture.md` §9. Сейчас в каркасе используются только dev-серверы (Django runserver, Next.js dev) — это нормально для разработки, но требует замены перед продакшеном.
