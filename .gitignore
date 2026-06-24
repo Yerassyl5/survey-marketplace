@@ -32,4 +32,7 @@ npm-debug.log*
 Thumbs.db
 
 # Claude Code local
-.claude/settings.local.json
+.claude/
+
+# Черновики вне репозитория документации
+Архитектура.docx
