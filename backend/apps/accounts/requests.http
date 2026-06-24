@@ -1,0 +1,63 @@
+### Регистрация заказчика — физическое лицо
+POST http://localhost:8000/api/accounts/register/customer/
+Content-Type: application/json
+
+{
+  "email": "customer.individual@example.com",
+  "password": "StrongPass123",
+  "person_type": "individual",
+  "full_name": "Иванов Иван Иванович",
+  "phone": "+77011234567",
+  "iin": "900101300123"
+}
+
+### Регистрация заказчика — юридическое лицо
+POST http://localhost:8000/api/accounts/register/customer/
+Content-Type: application/json
+
+{
+  "email": "customer.legal@example.com",
+  "password": "StrongPass123",
+  "person_type": "legal",
+  "full_name": "Петров Пётр Петрович",
+  "phone": "+77017654321",
+  "bin": "123456789012"
+}
+
+### Регистрация исполнителя — физическое лицо
+POST http://localhost:8000/api/accounts/register/contractor/
+Content-Type: application/json
+
+{
+  "email": "contractor.individual@example.com",
+  "password": "StrongPass123",
+  "person_type": "individual",
+  "full_name": "Сидоров Сидор Сидорович",
+  "phone": "+77019998877",
+  "iin": "850505400456",
+  "license_number": "LIC-2024-001",
+  "attestation_number": "ATT-2024-001",
+  "license_expiry": "2027-01-01"
+}
+
+### Регистрация исполнителя — юридическое лицо
+POST http://localhost:8000/api/accounts/register/contractor/
+Content-Type: application/json
+
+{
+  "email": "contractor.legal@example.com",
+  "password": "StrongPass123",
+  "person_type": "legal",
+  "full_name": "Кузнецов Алексей Викторович",
+  "phone": "+77013332211",
+  "bin": "987654321098",
+  "license_number": "LIC-2024-002",
+  "attestation_number": "ATT-2024-002",
+  "license_expiry": "2026-06-01"
+}
+
+### Swagger UI
+GET http://localhost:8000/api/docs/
+
+### OpenAPI схема (raw)
+GET http://localhost:8000/api/schema/
