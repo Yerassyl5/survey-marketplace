@@ -126,7 +126,7 @@ CELERY_RESULT_BACKEND = REDIS_URL
 # MinIO (S3-совместимое хранилище). В БД — только ссылки на файлы (CLAUDE.md §«Инфраструктура»).
 STORAGES = {
     "default": {
-        "BACKEND": "storages.backends.s3.S3Storage",
+        "BACKEND": "common.storage.PublicURLS3Storage",
     },
     "staticfiles": {
         "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
@@ -136,4 +136,7 @@ AWS_ACCESS_KEY_ID = os.environ.get("MINIO_ROOT_USER", "minioadmin")
 AWS_SECRET_ACCESS_KEY = os.environ.get("MINIO_ROOT_PASSWORD", "minioadmin")
 AWS_STORAGE_BUCKET_NAME = os.environ.get("MINIO_BUCKET", "eospatial")
 AWS_S3_ENDPOINT_URL = os.environ.get("MINIO_ENDPOINT", "http://minio:9000")
+# Публичный адрес для подписи ссылок, которые открывает браузер пользователя
+# (внутри docker-сети контейнеры обращаются друг к другу по MINIO_ENDPOINT).
+AWS_S3_PUBLIC_ENDPOINT_URL = os.environ.get("MINIO_PUBLIC_ENDPOINT", "http://localhost:9000")
 AWS_S3_ADDRESSING_STYLE = "path"

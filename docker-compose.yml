@@ -35,6 +35,28 @@ services:
     ports:
       - "9000:9000"
       - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Одноразовая инициализация: создаёт бакет MinIO, если его ещё нет.
+  # Нужна, потому что бакет не создаётся сам при первом старте MinIO
+  # (в отличие от Postgres, который накатывает init.sql) — без этого шага
+  # любая загрузка файла падает с NoSuchBucket на свежем volume.
+  minio-init:
+    image: minio/mc:latest
+    env_file: .env
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" &&
+        mc mb --ignore-existing "local/$$MINIO_BUCKET"
+    depends_on:
+      minio:
+        condition: service_healthy
 
   backend:
     build: ./backend
@@ -53,8 +75,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
-      minio:
-        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
 
   celery-worker:
     build: ./backend
@@ -72,6 +94,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      minio-init:
+        condition: service_completed_successfully
 
   celery-beat:
     build: ./backend
@@ -89,6 +113,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      minio-init:
+        condition: service_completed_successfully
 
   frontend:
     build: ./frontend

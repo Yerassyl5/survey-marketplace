@@ -86,3 +86,9 @@ class ContractorRegistrationSerializer(BaseRegistrationSerializer):
         )
         publish(UserRegistered(user_id=user.id, role=user.role))
         return user
+
+
+class ContractorDocumentUploadSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ContractorProfile
+        fields = ["license_scan", "attestation_scan"]

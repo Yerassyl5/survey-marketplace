@@ -90,6 +90,10 @@ class ContractorProfile(models.Model):
     verification_method = models.CharField(
         max_length=20, choices=VerificationMethod.choices, default=VerificationMethod.MANUAL
     )
+    # Сканы разрешительных документов — хранятся в MinIO (STORAGES в settings.py),
+    # в БД остаётся только ссылка на файл.
+    license_scan = models.FileField(upload_to="contractor_documents/licenses/", blank=True)
+    attestation_scan = models.FileField(upload_to="contractor_documents/attestations/", blank=True)
     # Витрина-портфолио исполнителя (минимум на старте)
     portfolio_description = models.TextField(blank=True)
 

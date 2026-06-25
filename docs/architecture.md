@@ -135,6 +135,7 @@
 - `RequestAwarded`
 - `ResultSubmitted`
 - `RequestAccepted` (только заказчиком)
+- `ContractorDocumentsSubmitted` (исполнитель загрузил/обновил сканы лицензии/аттестата — триггер для уведомления модератора)
 - `DealCompleted`
 - `ReviewLeft`
 - `ComplaintFiled`

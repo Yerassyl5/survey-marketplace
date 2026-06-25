@@ -56,6 +56,18 @@ Content-Type: application/json
   "license_expiry": "2026-06-01"
 }
 
+### Загрузка сканов документов исполнителем (1.2)
+### Требует сессионную авторизацию (логин-эндпоинта пока нет — см. progress.md, протестировано через Django test client)
+PATCH http://localhost:8000/api/accounts/contractor/documents/
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="license_scan"; filename="license.pdf"
+Content-Type: application/pdf
+
+< ./license.pdf
+--boundary--
+
 ### Swagger UI
 GET http://localhost:8000/api/docs/
 

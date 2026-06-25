@@ -31,9 +31,9 @@
   ИИН/БИН по типу лица уже есть в accounts API и остаётся как защита независимо от формы.
 
 ### 1.2. Верификация исполнителя (ручная)
-- [ ] Загрузка сканов лицензии/аттестата
-- [ ] Django Admin: просмотр документов, проставление «верифицирован»
-- [ ] Блокировка отклика для неверифицированных (или явная пометка)
+- [x] Загрузка сканов лицензии/аттестата (`PATCH /api/accounts/contractor/documents/`, только для роли contractor; файлы — в MinIO, в БД ссылка)
+- [x] Django Admin: просмотр документов (кликабельная ссылка на скан), проставление `verification_status` (pending/verified/rejected)
+- [x] Решение по блокировке: на этом этапе — только пометка статуса, без жёсткой блокировки отклика (физически блокировать пока нечего — эндпоинта отклика нет до 1.4). Жёсткую блокировку добавить в 1.4 при реализации отклика.
 
 ### 1.3. Объекты (sites)
 - [ ] Модель site (адрес, точка/контур PostGIS, кадастровый номер, владелец)
@@ -73,6 +73,10 @@
 - [ ] 2.2. Договоры в системе (шаблон, хранение по объекту)
 - [ ] 2.3. Кабинет заказчика (объекты + история + избранное)
 - [ ] 2.4. Уведомления исполнителю о новых заявках
+  - [ ] Уведомление администратора/модератора о новой заявке на верификацию: когда
+    исполнитель загрузил документы (лицензия/аттестат), модератор должен получить
+    оповещение (email и/или уведомление в операторской панели), чтобы не проверять
+    админку вручную.
 - [ ] 2.5. Операторская панель (fill rate, время до отклика, конверсия)
 
 ## ВОЛНА 3 — Монетизация и ускорение ретеншна
@@ -92,10 +96,16 @@
 ---
 
 ## Текущий фокус
-Пункт 1.1 («Регистрация и роли») реализован: кастомная модель `User` (логин по email, роли customer/contractor, ручной ввод ФИО/ИИН/БИН/почта/телефон) + `ContractorProfile` (license_number, attestation_number, license_expiry, verification_status=pending по умолчанию, verification_method). Эндпоинты `POST /api/accounts/register/customer/` и `/register/contractor/` проверены через curl. Подключён drf-spectacular (`/api/docs/`, `/api/schema/`). `.http`-примеры — `backend/apps/accounts/requests.http`.
+Пункты 1.1 и 1.2 реализованы.
+1.1: кастомная модель `User` (логин по email, роли customer/contractor, ручной ввод ФИО/ИИН/БИН/почта/телефон) + `ContractorProfile` (license_number, attestation_number, license_expiry, verification_status=pending по умолчанию, verification_method). Эндпоинты `POST /api/accounts/register/customer/` и `/register/contractor/` проверены через curl. Подключён drf-spectacular (`/api/docs/`, `/api/schema/`). `.http`-примеры — `backend/apps/accounts/requests.http`.
+1.2: добавлены `license_scan`/`attestation_scan` (FileField) на `ContractorProfile`; эндпоинт `PATCH /api/accounts/contractor/documents/` (роль contractor, владелец профиля, файлы — в MinIO); `backend/apps/accounts/admin.py` — `UserAdmin` + `ContractorProfileAdmin` с кликабельной ссылкой на скан и редактируемым `verification_status`. Проверено смоук-тестом (Django test client, force_login): загрузка контрактором → 200, попытка загрузки заказчиком → 403, смена статуса → сохраняется, рендер Django Admin списка/формы — 200.
 Локальная Postgres-БД была пересоздана (переход на `AUTH_USER_MODEL`), создан новый суперпользователь `admin@eospatial.kz` для Django Admin.
-Следующий шаг — 1.2 (ручная верификация исполнителя через Django Admin: загрузка документов, проставление статуса).
+Следующий шаг — 1.3 (объекты `sites`: модель с PostGIS-геометрией, заявка не существует без привязки к объекту).
 Репозиторий подключён к GitHub: https://github.com/Yerassyl5/survey-marketplace.git (origin/master).
+
+**Закрыто:** авто-создание бакета MinIO. В `docker-compose.yml` добавлен одноразовый сервис `minio-init` (`minio/mc`) — ждёт здорового `minio` (добавлен healthcheck), выполняет `mc mb --ignore-existing` для бакета из `MINIO_BUCKET`. `backend`/`celery-worker`/`celery-beat` теперь стартуют только после успешного завершения `minio-init` (`condition: service_completed_successfully`). Работает одинаково в dev и в прод-манифесте (Coolify тоже разворачивает по docker-compose). Проверено: снос volume `minio_data` → `docker compose up -d` → бакет появляется сам, загрузка скана через `/api/accounts/contractor/documents/` отрабатывает без ручного вмешательства; повторный запуск `minio-init` идемпотентен (exit 0).
+
+**Фикс ссылок на файлы MinIO:** ссылки на сканы открывались по внутреннему docker-адресу `minio:9000`, который браузер снаружи не резолвит. Добавлен `backend/common/storage.py` (`PublicURLS3Storage`) — операции с файлами идут через внутренний `MINIO_ENDPOINT`, а presigned-ссылки подписываются под публичный `MINIO_PUBLIC_ENDPOINT` (dev: `http://localhost:9000`, прод: заменить на реальный домен MinIO в `.env`). Проверено: ссылка с `localhost:9000` реально скачивает файл (curl, HTTP 200).
 
 ## Волна деплоя / продакшен — статус: не начато
 > Целевой прод-стек описан в `docs/architecture.md` §9. Сейчас в каркасе используются только dev-серверы (Django runserver, Next.js dev) — это нормально для разработки, но требует замены перед продакшеном.
@@ -107,6 +117,13 @@
 - [ ] Настроить регулярный бэкап БД Postgres (pg_dump по расписанию, например через cron/Celery beat)
 - [ ] Выгружать дампы в отдельное хранилище (MinIO или внешнее), не на тот же диск, что и сама БД
 - [ ] Задать политику хранения (сколько копий/дней держать) и проверить восстановление из дампа
+- [ ] Заменить заглушки `change-me` в рабочем `.env` на криптостойкие значения
+  (`MINIO_ROOT_PASSWORD`, `POSTGRES_PASSWORD`, `DJANGO_SECRET_KEY` и прочие секреты).
+  **Конкретные значения паролей сначала спросить у пользователя — не генерировать
+  и не выбирать самостоятельно.** Учесть, что MinIO и Postgres задают учётку при
+  первой инициализации volume, поэтому смена потребует пересоздания volume. На
+  проде `change-me` недопустим — это дыра в безопасности. Делать перед первым
+  деплоем, не в процессе разработки.
 
 ---
 
