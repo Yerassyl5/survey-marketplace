@@ -56,9 +56,40 @@ Content-Type: application/json
   "license_expiry": "2026-06-01"
 }
 
+### Вход — выдача access/refresh токенов
+POST http://localhost:8000/api/accounts/login/
+Content-Type: application/json
+
+{
+  "email": "customer.individual@example.com",
+  "password": "StrongPass123"
+}
+
+### Текущий пользователь по токену (вставить access из ответа /login/)
+GET http://localhost:8000/api/accounts/me/
+Authorization: Bearer ACCESS_TOKEN
+
+### Обновление access-токена (refresh ротируется и блеклистится после использования)
+POST http://localhost:8000/api/accounts/token/refresh/
+Content-Type: application/json
+
+{
+  "refresh": "REFRESH_TOKEN"
+}
+
+### Выход — блеклистинг refresh-токена
+POST http://localhost:8000/api/accounts/logout/
+Authorization: Bearer ACCESS_TOKEN
+Content-Type: application/json
+
+{
+  "refresh": "REFRESH_TOKEN"
+}
+
 ### Загрузка сканов документов исполнителем (1.2)
-### Требует сессионную авторизацию (логин-эндпоинта пока нет — см. progress.md, протестировано через Django test client)
+### Требует Authorization: Bearer ACCESS_TOKEN (вставить access из ответа /login/ под учёткой исполнителя)
 PATCH http://localhost:8000/api/accounts/contractor/documents/
+Authorization: Bearer ACCESS_TOKEN
 Content-Type: multipart/form-data; boundary=boundary
 
 --boundary

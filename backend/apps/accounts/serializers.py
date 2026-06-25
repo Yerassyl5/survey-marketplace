@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from rest_framework import serializers
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from common.events import publish
 
@@ -92,3 +93,35 @@ class ContractorDocumentUploadSerializer(serializers.ModelSerializer):
     class Meta:
         model = ContractorProfile
         fields = ["license_scan", "attestation_scan"]
+
+
+class LoginSerializer(TokenObtainPairSerializer):
+    # USERNAME_FIELD на User — email, поэтому базовый TokenObtainPairSerializer
+    # уже принимает email+password; добавляем user_id/role в ответ, чтобы
+    # фронту не нужен был отдельный вызов /me/ сразу после логина.
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        data["user_id"] = self.user.id
+        data["role"] = self.user.role
+        return data
+
+
+class MeSerializer(serializers.ModelSerializer):
+    verification_status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "email",
+            "role",
+            "person_type",
+            "full_name",
+            "phone",
+            "verification_status",
+        ]
+
+    def get_verification_status(self, user: User) -> str | None:
+        if user.role != Role.CONTRACTOR:
+            return None
+        return user.contractor_profile.verification_status
