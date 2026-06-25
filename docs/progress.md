@@ -36,9 +36,9 @@
 - [x] Решение по блокировке: на этом этапе — только пометка статуса, без жёсткой блокировки отклика (физически блокировать пока нечего — эндпоинта отклика нет до 1.4). Жёсткую блокировку добавить в 1.4 при реализации отклика.
 
 ### 1.3. Объекты (sites)
-- [ ] Модель site (адрес, точка/контур PostGIS, кадастровый номер, владелец)
-- [ ] Заявка не существует без привязки к объекту
-- [ ] Отображение объекта на карте
+- [x] Модель site (адрес, точка/контур PostGIS, кадастровый номер, владелец)
+- [x] Заявка не существует без привязки к объекту (задел: `Site.owner` FK на `User`, `related_name="sites"`; `marketplace.Request` в 1.4 получит `FK(Site, related_name="requests")` без доп. миграций)
+- [ ] Отображение объекта на карте (отдельная фронтенд-задача, не входила в скоуп 1.3 backend)
 
 ### 1.4. Заявка и отклик
 - [ ] Создание заявки (тип работ, описание, файл ТЗ, привязка к объекту, геометрия)
@@ -96,11 +96,12 @@
 ---
 
 ## Текущий фокус
-Пункты 1.1 и 1.2 реализованы.
+Пункты 1.1, 1.2 и 1.3 реализованы.
 1.1: кастомная модель `User` (логин по email, роли customer/contractor, ручной ввод ФИО/ИИН/БИН/почта/телефон) + `ContractorProfile` (license_number, attestation_number, license_expiry, verification_status=pending по умолчанию, verification_method). Эндпоинты `POST /api/accounts/register/customer/` и `/register/contractor/` проверены через curl. Подключён drf-spectacular (`/api/docs/`, `/api/schema/`). `.http`-примеры — `backend/apps/accounts/requests.http`.
 1.2: добавлены `license_scan`/`attestation_scan` (FileField) на `ContractorProfile`; эндпоинт `PATCH /api/accounts/contractor/documents/` (роль contractor, владелец профиля, файлы — в MinIO); `backend/apps/accounts/admin.py` — `UserAdmin` + `ContractorProfileAdmin` с кликабельной ссылкой на скан и редактируемым `verification_status`. Проверено смоук-тестом (Django test client, force_login): загрузка контрактором → 200, попытка загрузки заказчиком → 403, смена статуса → сохраняется, рендер Django Admin списка/формы — 200.
 Локальная Postgres-БД была пересоздана (переход на `AUTH_USER_MODEL`), создан новый суперпользователь `admin@eospatial.kz` для Django Admin.
-Следующий шаг — 1.3 (объекты `sites`: модель с PostGIS-геометрией, заявка не существует без привязки к объекту).
+1.3: модель `Site` (`backend/apps/sites/models.py`) — `owner` (FK на `User`, ограничен ролью customer), `address`, `geometry` (единое `GeometryField(srid=4326)`, без жёсткого типа — допускает и точку, и полигон-контур одним полем вместо двух раздельных), `cadastral_number`. API на `djangorestframework-gis` (`GeoFeatureModelSerializer` + явно объявленный `rest_framework_gis.fields.GeometryField` — без явного объявления поле сериализуется как `ModelField` и ломает GeoJSON): `GET/POST /api/sites/` (список/создание, только для роли customer, `owner` подставляется из `request.user`), `GET /api/sites/<id>/` (только владелец, иначе 404). Update/delete не реализованы — не входили в критерии приёмки 1.3. Событие `SiteCreated` публикуется при создании. Регистрация в Django Admin через `GISModelAdmin` (карта-виджет). Смоук-тест через Django test client (force_login): создание/список/просмотр владельцем — 200/201, просмотр чужого объекта — 404, создание исполнителем/анонимом — 403, рендер Django Admin (список + форма) — 200.
+Следующий шаг — 1.4 (заявка и отклик; `marketplace.Request` получит `FK(Site, related_name="requests")`).
 Репозиторий подключён к GitHub: https://github.com/Yerassyl5/survey-marketplace.git (origin/master).
 
 **Закрыто:** авто-создание бакета MinIO. В `docker-compose.yml` добавлен одноразовый сервис `minio-init` (`minio/mc`) — ждёт здорового `minio` (добавлен healthcheck), выполняет `mc mb --ignore-existing` для бакета из `MINIO_BUCKET`. `backend`/`celery-worker`/`celery-beat` теперь стартуют только после успешного завершения `minio-init` (`condition: service_completed_successfully`). Работает одинаково в dev и в прод-манифесте (Coolify тоже разворачивает по docker-compose). Проверено: снос volume `minio_data` → `docker compose up -d` → бакет появляется сам, загрузка скана через `/api/accounts/contractor/documents/` отрабатывает без ручного вмешательства; повторный запуск `minio-init` идемпотентен (exit 0).
