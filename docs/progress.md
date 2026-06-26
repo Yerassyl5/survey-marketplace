@@ -29,6 +29,9 @@
 - [ ] Форма регистрации: сначала выбор типа лица (физ/юр), затем условный показ полей —
   для физлица показывать ИИН и скрывать БИН, для юрлица наоборот. Серверная валидация
   ИИН/БИН по типу лица уже есть в accounts API и остаётся как защита независимо от формы.
+- [ ] Форма регистрации исполнителя: показывать предупреждение «без загрузки лицензии
+  и аттестата аккаунт будет не верифицирован; заказчики видят статус верификации —
+  приложите документы для подтверждения допусков»
 - [x] Вход по email+паролю, выдача токена; `GET /me/` для получения текущего профиля (JWT, см. ниже)
 
 ### 1.2. Верификация исполнителя (ручная)
@@ -42,10 +45,16 @@
 - [ ] Отображение объекта на карте (отдельная фронтенд-задача, не входила в скоуп 1.3 backend)
 
 ### 1.4. Заявка и отклик
-- [ ] Создание заявки (тип работ, описание, файл ТЗ, привязка к объекту, геометрия)
-- [ ] Лента заявок для исполнителя (ниша/город)
-- [ ] Отклик исполнителя, видимость откликов и контактов заказчику
-- [ ] Выбор исполнителя заказчиком
+- [x] Создание заявки (тип работ, описание, файл ТЗ, привязка к объекту, геометрия)
+- [x] Лента заявок для исполнителя (фильтр work_type/city)
+- [x] Отклик исполнителя, видимость откликов и статуса верификации заказчику
+- [x] Выбор исполнителя заказчиком
+- [x] Двусторонние вехи: submit-result (исполнитель) → accept/return (заказчик); статус «принято» ТОЛЬКО заказчик
+- [x] Доменные события: RequestCreated, BidPlaced, RequestAwarded, ResultSubmitted, RequestAccepted, DealCompleted
+- [x] Смок-тест 19/19 (полный цикл: создание → отклик → award → submit → accept/return)
+- [ ] (этап зрелости) Включить жёсткую блокировку откликов для неверифицированных
+  исполнителей: выставить REQUIRE_VERIFIED_TO_BID=True в конфиге; permission-класс
+  ContractorCanBid уже готов к переключению (реализован в 1.4)
 
 ### 1.5. Двусторонние вехи завершения
 - [ ] «Результат сдан» с загрузкой отчёта/файлов (исполнитель)
@@ -104,7 +113,8 @@
 1.3: модель `Site` (`backend/apps/sites/models.py`) — `owner` (FK на `User`, ограничен ролью customer), `address`, `geometry` (единое `GeometryField(srid=4326)`, без жёсткого типа — допускает и точку, и полигон-контур одним полем вместо двух раздельных), `cadastral_number`. API на `djangorestframework-gis` (`GeoFeatureModelSerializer` + явно объявленный `rest_framework_gis.fields.GeometryField` — без явного объявления поле сериализуется как `ModelField` и ломает GeoJSON): `GET/POST /api/sites/` (список/создание, только для роли customer, `owner` подставляется из `request.user`), `GET /api/sites/<id>/` (только владелец, иначе 404). Update/delete не реализованы — не входили в критерии приёмки 1.3. Событие `SiteCreated` публикуется при создании. Регистрация в Django Admin через `GISModelAdmin` (карта-виджет). Смоук-тест через Django test client (force_login): создание/список/просмотр владельцем — 200/201, просмотр чужого объекта — 404, создание исполнителем/анонимом — 403, рендер Django Admin (список + форма) — 200.
 Аутентификация (доп. пункт к 1.1, добавлен задним числом — без логина 1.4 невозможна): JWT через `djangorestframework-simplejwt` вместо DRF Token — выбран из-за будущего мобильного приложения (Wave 4+), для которого пара access/refresh подходит лучше статичного токена без TTL. `POST /api/accounts/login/` (email+password → `access`, `refresh`, `user_id`, `role`), `POST /api/accounts/token/refresh/` (ротация refresh с блеклистингом старого — `rest_framework_simplejwt.token_blacklist`), `POST /api/accounts/logout/` (явный блеклистинг refresh), `GET /api/accounts/me/` (текущий пользователь + `verification_status` для исполнителя). `DEFAULT_AUTHENTICATION_CLASSES` = `JWTAuthentication` + `SessionAuthentication` (сессии остаются для Django Admin). Access — 15 мин, refresh — 7 дней. Проверено curl по полному циклу: регистрация → логин → `/me/` по токену → доступ к `/api/sites/` по токену (200/201) → 401 без токена → refresh ротирует токен и блеклистит старый (повторное использование старого refresh → 401 "blacklisted") → logout блеклистит refresh → неверный пароль → 401. Swagger/OpenAPI схема подхватила новые эндпоинты без ошибок.
 PRODUCT_SPEC.md дополнен: в 1.1 добавлен пункт про вход и обновлены критерии приёмки.
-Следующий шаг — 1.4 (заявка и отклик; `marketplace.Request` получит `FK(Site, related_name="requests")`).
+1.4: модуль `marketplace` — модели `Request` и `Bid`, полный цикл заявка → отклик → выбор → сдача → принятие/возврат. Мягкая блокировка верификации (неверифицированные исполнители могут откликаться, их статус виден заказчику). Permission-класс `ContractorCanBid` с toggle `REQUIRE_VERIFIED_TO_BID` для будущей жёсткой блокировки. Доменные события: RequestCreated, BidPlaced (с contractor_id), RequestAwarded, ResultSubmitted, RequestAccepted, DealCompleted. Смок-тест 19/19.
+Следующий шаг — 1.5 (двусторонние вехи завершения) уже закрыт в 1.4; следующий — 1.6 (геомодуль: KML/GeoJSON) или фронтенд.
 Репозиторий подключён к GitHub: https://github.com/Yerassyl5/survey-marketplace.git (origin/master).
 
 **Закрыто:** авто-создание бакета MinIO. В `docker-compose.yml` добавлен одноразовый сервис `minio-init` (`minio/mc`) — ждёт здорового `minio` (добавлен healthcheck), выполняет `mc mb --ignore-existing` для бакета из `MINIO_BUCKET`. `backend`/`celery-worker`/`celery-beat` теперь стартуют только после успешного завершения `minio-init` (`condition: service_completed_successfully`). Работает одинаково в dev и в прод-манифесте (Coolify тоже разворачивает по docker-compose). Проверено: снос volume `minio_data` → `docker compose up -d` → бакет появляется сам, загрузка скана через `/api/accounts/contractor/documents/` отрабатывает без ручного вмешательства; повторный запуск `minio-init` идемпотентен (exit 0).

@@ -15,6 +15,7 @@ class RequestCreated(DomainEvent):
 class BidPlaced(DomainEvent):
     request_id: int
     bid_id: int
+    contractor_id: int
 
 
 @dataclass(frozen=True)
