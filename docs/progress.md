@@ -115,7 +115,7 @@
 ---
 
 ## Текущий фокус
-**Backend Волны 1 закрыт по пунктам 1.1–1.6 (геомодуль backend).** Следующие: 1.7 (базовая админка), 1.8 (i18n), фронтенд (формы регистрации, карта объекта, лента заявок).
+**Backend Волны 1 закрыт по пунктам 1.1–1.7.** Остаток backend: 1.8 (i18n — низкий приоритет), 1.9 (AuditLog), техдолг 1.5 (MinIO тест). Следующий приоритет — фронтенд (auth, создание заявки, лента, карта, i18n, темы).
 
 1.5: многофайловый результат — модель `ResultFile` (FK на Request, FileField → MinIO, original_name, uploaded_at); удалено поле `result_file` с Request; `SubmitResultView` принимает `result_files[]` (первая сдача — ≥1 файл обязателен, повторная добавляет к старым); событие `ResultReturned` в `ReturnView`; Swagger-схема submit-result с inline_serializer (multipart/form-data). Тесты: 20/20. Миграция: 0002_remove_request_result_file_resultfile.
 
