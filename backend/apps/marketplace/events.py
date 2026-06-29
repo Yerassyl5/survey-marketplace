@@ -38,3 +38,9 @@ class RequestAccepted(DomainEvent):
 @dataclass(frozen=True)
 class DealCompleted(DomainEvent):
     request_id: int
+
+
+@dataclass(frozen=True)
+class ResultReturned(DomainEvent):
+    """Заказчик вернул результат на доработку."""
+    request_id: int

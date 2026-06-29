@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from django.contrib.gis.geos import Point
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from rest_framework.test import APIClient
 
@@ -163,12 +164,22 @@ class RequestLifecycleTest(TestCase):
     def test_submit_result(self):
         req, bid = self._setup_bid()
         self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": bid.id}, format="json")
+        file = SimpleUploadedFile("report.pdf", b"fake pdf content", content_type="application/pdf")
         r = self.client_e.post(f"/api/marketplace/requests/{req.id}/submit-result/", {
-            "result_note": "Отчёт прикреплён"
-        }, format="json")
+            "result_files": file,
+            "result_note": "Отчёт прикреплён",
+        })
         self.assertEqual(r.status_code, 200)
         req.refresh_from_db()
         self.assertEqual(req.status, RequestStatus.RESULT_SUBMITTED)
+
+    def test_submit_result_first_submission_requires_file(self):
+        req, bid = self._setup_bid()
+        self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": bid.id}, format="json")
+        r = self.client_e.post(f"/api/marketplace/requests/{req.id}/submit-result/", {
+            "result_note": "Без файла"
+        }, format="json")
+        self.assertEqual(r.status_code, 400)
 
     def test_customer_cannot_submit_result(self):
         req, bid = self._setup_bid()
@@ -179,7 +190,8 @@ class RequestLifecycleTest(TestCase):
     def test_accept(self):
         req, bid = self._setup_bid()
         self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": bid.id}, format="json")
-        self.client_e.post(f"/api/marketplace/requests/{req.id}/submit-result/", {}, format="json")
+        file = SimpleUploadedFile("report.pdf", b"fake pdf content", content_type="application/pdf")
+        self.client_e.post(f"/api/marketplace/requests/{req.id}/submit-result/", {"result_files": file})
         r = self.client_c.post(f"/api/marketplace/requests/{req.id}/accept/")
         self.assertEqual(r.status_code, 200)
         req.refresh_from_db()
@@ -188,14 +200,16 @@ class RequestLifecycleTest(TestCase):
     def test_contractor_cannot_accept(self):
         req, bid = self._setup_bid()
         self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": bid.id}, format="json")
-        self.client_e.post(f"/api/marketplace/requests/{req.id}/submit-result/", {}, format="json")
+        file = SimpleUploadedFile("report.pdf", b"fake pdf content", content_type="application/pdf")
+        self.client_e.post(f"/api/marketplace/requests/{req.id}/submit-result/", {"result_files": file})
         r = self.client_e.post(f"/api/marketplace/requests/{req.id}/accept/")
         self.assertEqual(r.status_code, 403)
 
     def test_return(self):
         req, bid = self._setup_bid()
         self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": bid.id}, format="json")
-        self.client_e.post(f"/api/marketplace/requests/{req.id}/submit-result/", {}, format="json")
+        file = SimpleUploadedFile("report.pdf", b"fake pdf content", content_type="application/pdf")
+        self.client_e.post(f"/api/marketplace/requests/{req.id}/submit-result/", {"result_files": file})
         r = self.client_c.post(f"/api/marketplace/requests/{req.id}/return/")
         self.assertEqual(r.status_code, 200)
         req.refresh_from_db()

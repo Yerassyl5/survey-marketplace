@@ -3,7 +3,8 @@ from __future__ import annotations
 from django.conf import settings
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
-from drf_spectacular.utils import extend_schema
+from rest_framework import serializers as rf_serializers
+from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -12,8 +13,8 @@ from apps.accounts.models import Role, VerificationStatus
 
 from common.events import publish
 
-from .events import DealCompleted, RequestAccepted, RequestAwarded, ResultSubmitted
-from .models import Bid, BidStatus, Request, RequestStatus
+from .events import DealCompleted, RequestAccepted, RequestAwarded, ResultReturned, ResultSubmitted
+from .models import Bid, BidStatus, Request, RequestStatus, ResultFile
 from .serializers import BidSerializer, RequestSerializer
 
 
@@ -58,7 +59,7 @@ class RequestListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        qs = Request.objects.select_related("customer", "assigned_contractor", "site")
+        qs = Request.objects.select_related("customer", "assigned_contractor", "site").prefetch_related("result_files")
         if user.role == Role.CUSTOMER:
             return qs.filter(customer=user)
         # Исполнитель видит ленту открытых заявок с фильтрацией по нише и городу
@@ -80,7 +81,7 @@ class RequestDetailView(generics.RetrieveAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        qs = Request.objects.select_related("customer", "assigned_contractor", "site")
+        qs = Request.objects.select_related("customer", "assigned_contractor", "site").prefetch_related("result_files")
         if user.role == Role.CUSTOMER:
             return qs.filter(customer=user)
         return qs.filter(Q(status=RequestStatus.OPEN) | Q(assigned_contractor=user))
@@ -150,7 +151,23 @@ class AwardView(APIView):
         return Response({"status": req.status})
 
 
-@extend_schema(tags=["marketplace"])
+@extend_schema(
+    tags=["marketplace"],
+    request=inline_serializer(
+        name="SubmitResultRequest",
+        fields={
+            "result_files": rf_serializers.ListField(
+                child=rf_serializers.FileField(),
+                help_text="Один или несколько файлов результата (при первой сдаче обязательно)",
+            ),
+            "result_note": rf_serializers.CharField(
+                required=False,
+                allow_blank=True,
+                help_text="Текстовый комментарий к результату",
+            ),
+        },
+    ),
+)
 class SubmitResultView(APIView):
     """Исполнитель сдаёт результат (файл + комментарий). Переводит заявку в result_submitted."""
     permission_classes = [IsContractor]
@@ -161,11 +178,18 @@ class SubmitResultView(APIView):
         ).first()
         if not req:
             return Response({"detail": "Заявка не найдена или недоступна."}, status=status.HTTP_404_NOT_FOUND)
-        if "result_file" in request.FILES:
-            req.result_file = request.FILES["result_file"]
+        files = request.FILES.getlist("result_files")
+        has_existing = req.result_files.exists()
+        if not has_existing and not files:
+            return Response(
+                {"detail": "При первой сдаче необходимо прикрепить хотя бы один файл."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        for f in files:
+            ResultFile.objects.create(request=req, file=f, original_name=f.name)
         req.result_note = request.data.get("result_note", req.result_note)
         req.status = RequestStatus.RESULT_SUBMITTED
-        req.save(update_fields=["status", "result_file", "result_note", "updated_at"])
+        req.save(update_fields=["status", "result_note", "updated_at"])
         publish(ResultSubmitted(request_id=req.id))
         return Response({"status": req.status})
 
@@ -201,4 +225,5 @@ class ReturnView(APIView):
             return Response({"detail": "Заявка не найдена или недоступна."}, status=status.HTTP_404_NOT_FOUND)
         req.status = RequestStatus.AWARDED
         req.save(update_fields=["status", "updated_at"])
+        publish(ResultReturned(request_id=req.id))
         return Response({"status": req.status})

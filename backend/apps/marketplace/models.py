@@ -58,8 +58,7 @@ class Request(models.Model):
         blank=True,
         related_name="awarded_requests",
     )
-    # Файл результата и комментарий — заполняет исполнитель при сдаче
-    result_file = models.FileField(upload_to="marketplace/results/", blank=True)
+    # Текстовый комментарий к результату — заполняет исполнитель при сдаче; файлы — в ResultFile
     result_note = models.TextField(blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -91,3 +90,14 @@ class Bid(models.Model):
 
     def __str__(self) -> str:
         return f"Отклик #{self.pk}: {self.contractor.email} → заявка #{self.request_id}"
+
+
+class ResultFile(models.Model):
+    """Файл результата работы исполнителя; один или несколько на одну заявку."""
+    request = models.ForeignKey(Request, on_delete=models.CASCADE, related_name="result_files")
+    file = models.FileField(upload_to="marketplace/results/")
+    original_name = models.CharField(max_length=255, blank=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f"Файл результата #{self.pk} → заявка #{self.request_id}"

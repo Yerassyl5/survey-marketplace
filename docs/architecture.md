@@ -134,6 +134,7 @@
 - `BidPlaced` (привязка к заявке, метка времени)
 - `RequestAwarded`
 - `ResultSubmitted`
+- `ResultReturned` (заказчик вернул результат на доработку)
 - `RequestAccepted` (только заказчиком)
 - `ContractorDocumentsSubmitted` (исполнитель загрузил/обновил сканы лицензии/аттестата — триггер для уведомления модератора)
 - `DealCompleted`

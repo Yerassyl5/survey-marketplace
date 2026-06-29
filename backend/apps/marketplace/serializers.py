@@ -6,7 +6,7 @@ from rest_framework_gis.fields import GeometryField
 from common.events import publish
 
 from .events import BidPlaced, RequestCreated
-from .models import Bid, Request
+from .models import Bid, Request, ResultFile
 
 
 class ContractorBriefSerializer(serializers.Serializer):
@@ -38,21 +38,28 @@ class BidSerializer(serializers.ModelSerializer):
         return bid
 
 
+class ResultFileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ResultFile
+        fields = ["id", "file", "original_name", "uploaded_at"]
+
+
 class RequestSerializer(serializers.ModelSerializer):
     geometry = GeometryField(required=False, allow_null=True)
     bids_count = serializers.IntegerField(source="bids.count", read_only=True)
+    result_files = ResultFileSerializer(many=True, read_only=True)
 
     class Meta:
         model = Request
         fields = [
             "id", "site", "work_type", "description", "tz_file",
             "geometry", "city", "status", "assigned_contractor",
-            "result_file", "result_note", "bids_count",
+            "result_files", "result_note", "bids_count",
             "created_at", "updated_at",
         ]
         read_only_fields = [
             "id", "status", "assigned_contractor",
-            "result_file", "result_note", "bids_count",
+            "result_files", "result_note", "bids_count",
             "created_at", "updated_at",
         ]
 
