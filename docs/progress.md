@@ -64,9 +64,12 @@
   проверить, что при повторной сдаче после return старые ResultFile-записи сохраняются и новые добавляются
 
 ### 1.6. Геомодуль (база)
-- [ ] Загрузка и парсинг KML/GeoJSON
-- [ ] SHP только как zip (или не поддерживать)
-- [ ] Превью на карте (MapLibre)
+- [x] Загрузка и парсинг KML/GeoJSON (`POST /api/sites/{site_id}/geometry/`)
+  - `geo/services.py`: parse_geo_file() — KML через GDAL+tempfile, GeoJSON через GEOSGeometry; валидация размера/формата/корректности; ValidationError → 400
+  - `geo/views.py`: SiteGeometryUploadView — только заказчик-владелец объекта; публикует GeometryUploaded
+  - Событие `GeometryUploaded(site_id, file_format)` в `geo/events.py`
+- [x] SHP — решено не поддерживать в MVP (многофайловый формат, требует zip; отложено)
+- [ ] Превью на карте (MapLibre) — фронтенд-задача, отдельно
 
 ### 1.7. Базовая админка
 - [ ] Управление пользователями, заявками, верификацией, жалобами через Django Admin
@@ -108,7 +111,7 @@
 ---
 
 ## Текущий фокус
-**Backend Волны 1 закрыт по пунктам 1.1–1.5.** Следующие: 1.6 (геомодуль KML/GeoJSON) и фронтенд (формы регистрации, карта объекта, лента заявок).
+**Backend Волны 1 закрыт по пунктам 1.1–1.6 (геомодуль backend).** Следующие: 1.7 (базовая админка), 1.8 (i18n), фронтенд (формы регистрации, карта объекта, лента заявок).
 
 1.5: многофайловый результат — модель `ResultFile` (FK на Request, FileField → MinIO, original_name, uploaded_at); удалено поле `result_file` с Request; `SubmitResultView` принимает `result_files[]` (первая сдача — ≥1 файл обязателен, повторная добавляет к старым); событие `ResultReturned` в `ReturnView`; Swagger-схема submit-result с inline_serializer (multipart/form-data). Тесты: 20/20. Миграция: 0002_remove_request_result_file_resultfile.
 
