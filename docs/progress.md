@@ -72,7 +72,11 @@
 - [ ] Превью на карте (MapLibre) — фронтенд-задача, отдельно
 
 ### 1.7. Базовая админка
-- [ ] Управление пользователями, заявками, верификацией, жалобами через Django Admin
+- [x] Управление пользователями, заявками, верификацией через Django Admin
+  - accounts: UserAdmin (email/ФИО/телефон/роль/тип лица), ContractorProfileAdmin с list_editable verification_status и кликабельными ссылками на сканы (license_scan_link, attestation_scan_link)
+  - sites: SiteAdmin с GISModelAdmin (карта), list_select_related, ordering
+  - marketplace: RequestAdmin (date_hierarchy, list_select_related, site в колонке) + ResultFileInline; BidAdmin (фильтр по work_type, поиск по city/description)
+  - Жалобы — модель появится в 2.1 (репутация), Admin добавить тогда же
 
 ### 1.8. Трёхъязычие и темы
 - [ ] i18n kk/ru/en (Django + next-intl)
