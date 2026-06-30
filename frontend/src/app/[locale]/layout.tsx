@@ -23,7 +23,8 @@ export default async function LocaleLayout({
   }
 
   return (
-    <html lang={locale} data-theme="light">
+    // suppressHydrationWarning нужен, т.к. тема (dark/light) может меняться на клиенте
+    <html lang={locale} suppressHydrationWarning>
       <body>
         <NextIntlClientProvider>{children}</NextIntlClientProvider>
       </body>
