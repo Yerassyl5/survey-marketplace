@@ -4,7 +4,7 @@ from django.conf import settings
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers as rf_serializers
-from drf_spectacular.utils import extend_schema, inline_serializer
+from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -43,6 +43,10 @@ class ContractorCanBid(permissions.BasePermission):
         return True
 
 
+@extend_schema_view(
+    get=extend_schema(summary="Лента заявок (заказчику — свои, исполнителю — открытые)"),
+    post=extend_schema(summary="Создание заявки заказчиком"),
+)
 @extend_schema(tags=["marketplace"])
 class RequestListCreateView(generics.ListCreateAPIView):
     """
@@ -73,7 +77,7 @@ class RequestListCreateView(generics.ListCreateAPIView):
         return qs
 
 
-@extend_schema(tags=["marketplace"])
+@extend_schema(tags=["marketplace"], summary="Детали заявки")
 class RequestDetailView(generics.RetrieveAPIView):
     """Детали заявки: заказчик (владелец) или исполнитель (открытые + назначенные)."""
     serializer_class = RequestSerializer
@@ -87,6 +91,10 @@ class RequestDetailView(generics.RetrieveAPIView):
         return qs.filter(Q(status=RequestStatus.OPEN) | Q(assigned_contractor=user))
 
 
+@extend_schema_view(
+    get=extend_schema(summary="Список откликов на заявку (для заказчика)"),
+    post=extend_schema(summary="Отклик исполнителя на заявку"),
+)
 @extend_schema(tags=["marketplace"])
 class BidListCreateView(generics.ListCreateAPIView):
     """
@@ -117,7 +125,7 @@ class BidListCreateView(generics.ListCreateAPIView):
         serializer.save(request=request_obj, contractor=self.request.user)
 
 
-@extend_schema(tags=["marketplace"])
+@extend_schema(tags=["marketplace"], summary="Свои отклики исполнителя")
 class MyBidListView(generics.ListAPIView):
     """Отклики текущего исполнителя на все заявки."""
     serializer_class = BidSerializer
@@ -129,7 +137,7 @@ class MyBidListView(generics.ListAPIView):
         ).filter(contractor=self.request.user)
 
 
-@extend_schema(tags=["marketplace"], request={"application/json": {"type": "object", "properties": {"bid_id": {"type": "integer"}}}})
+@extend_schema(tags=["marketplace"], summary="Выбор исполнителя заказчиком", request={"application/json": {"type": "object", "properties": {"bid_id": {"type": "integer"}}}})
 class AwardView(APIView):
     """Заказчик выбирает исполнителя (по bid_id). Остальные отклики — отклоняются."""
     permission_classes = [IsCustomer]
@@ -153,6 +161,7 @@ class AwardView(APIView):
 
 @extend_schema(
     tags=["marketplace"],
+    summary="Сдача результата исполнителем",
     request=inline_serializer(
         name="SubmitResultRequest",
         fields={
@@ -194,7 +203,7 @@ class SubmitResultView(APIView):
         return Response({"status": req.status})
 
 
-@extend_schema(tags=["marketplace"])
+@extend_schema(tags=["marketplace"], summary="Приём результата заказчиком")
 class AcceptView(APIView):
     """Заказчик принимает результат. Статус «принято» ставит ТОЛЬКО заказчик (инвариант №2)."""
     permission_classes = [IsCustomer]
@@ -212,7 +221,7 @@ class AcceptView(APIView):
         return Response({"status": req.status})
 
 
-@extend_schema(tags=["marketplace"])
+@extend_schema(tags=["marketplace"], summary="Возврат результата на доработку")
 class ReturnView(APIView):
     """Заказчик возвращает результат на доработку — заявка переходит обратно в awarded."""
     permission_classes = [IsCustomer]
