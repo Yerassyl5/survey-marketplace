@@ -1,106 +1,208 @@
 @import "tailwindcss";
 
-/* Класс-based dark mode: добавить class="dark" на <html> для тёмной темы */
+/* Класс-based dark mode */
 @custom-variant dark (&:is(.dark *));
 
 /*
-  @theme inline: Tailwind-утилиты (bg-background, text-primary и т.д.)
-  генерируются как var(), а не статические значения — это позволяет темам
-  переключаться через CSS-переменные без пересборки.
+  @theme inline: Tailwind-утилиты (bg-primary, text-foreground и т.д.)
+  генерируются через var() — тема переключается без пересборки.
 */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
+  --color-background:        var(--background);
+  --color-foreground:        var(--foreground);
+  --color-card:              var(--card);
+  --color-card-foreground:   var(--card-foreground);
+  --color-popover:           var(--popover);
   --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
+  --color-primary:           var(--primary);
   --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
+  --color-secondary:         var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
+  --color-muted:             var(--muted);
+  --color-muted-foreground:  var(--muted-foreground);
+  --color-accent:            var(--accent);
   --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
+  --color-destructive:       var(--destructive);
+  --color-border:            var(--border);
+  --color-input:             var(--input);
+  --color-ring:              var(--ring);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 }
 
-/* Источник истины для цветов — CSS-переменные в :root / .dark */
+/* ═══════════════════════════════════════════════════════════════════════
+   ИНСТИТУЦИОНАЛЬНАЯ ДИЗАЙН-СИСТЕМА — единственный источник истины.
+   Все компоненты берут значения отсюда. Менять только здесь.
+   ═══════════════════════════════════════════════════════════════════════ */
+
 :root {
+  /* ── shadcn-совместимые переменные (используются Button, Input и др.) ── */
   --radius: 0.5rem;
 
-  --background: #ffffff;
-  --foreground: #171717;
+  --background:            #F8FAFC;
+  --foreground:            #020617;
+  --card:                  #FFFFFF;
+  --card-foreground:       #020617;
+  --popover:               #FFFFFF;
+  --popover-foreground:    #020617;
+  --primary:               #0369A1;   /* институциональный синий */
+  --primary-foreground:    #FFFFFF;
+  --secondary:             #F1F5F9;
+  --secondary-foreground:  #0F172A;
+  --muted:                 #F8FAFC;
+  --muted-foreground:      #475569;
+  --accent:                #DBEAFE;
+  --accent-foreground:     #1E40AF;
+  --destructive:           #DC2626;
+  --border:                #E2E8F0;
+  --input:                 #E2E8F0;
+  --ring:                  #0369A1;
 
-  --card: #ffffff;
-  --card-foreground: #171717;
+  /* ── Расширенная палитра (--ds-* namespace) ── */
+  --ds-navy:          #0F172A;   /* фон hero, footer */
+  --ds-navy-mid:      #1E293B;   /* промежуточный тёмный */
+  --ds-navy-light:    #334155;   /* вторичный на тёмном */
+  --ds-blue:          #0369A1;   /* CTA, ссылки */
+  --ds-blue-dark:     #1E40AF;   /* hover кнопок */
+  --ds-blue-light:    #DBEAFE;   /* фон бейджей */
+  --ds-blue-xlight:   #EFF6FF;   /* очень светлый акцент */
+  --ds-text:          #020617;   /* основной текст */
+  --ds-text-sec:      #475569;   /* вторичный текст */
+  --ds-text-muted:    #94A3B8;   /* мuted, плейсхолдеры */
+  --ds-bg:            #F8FAFC;   /* основной фон страниц */
+  --ds-bg-white:      #FFFFFF;   /* карточки, таблицы */
+  --ds-border:        #E2E8F0;   /* границы */
+  --ds-border-str:    #CBD5E1;   /* усиленные границы */
 
-  --popover: #ffffff;
-  --popover-foreground: #171717;
+  /* ── Статусы заявок (цвет = не единственный индикатор — есть текст) ── */
+  --ds-new-bg:        #EFF6FF;
+  --ds-new-text:      #1D4ED8;
+  --ds-active-bg:     #F0FDF4;
+  --ds-active-text:   #166534;
+  --ds-select-bg:     #FEF3C7;
+  --ds-select-text:   #92400E;
+  --ds-done-bg:       #F1F5F9;
+  --ds-done-text:     #475569;
 
-  --primary: #2563eb;
-  --primary-foreground: #ffffff;
+  /* ── Верификация ── */
+  --ds-ver-bg:        #F0FDF4;
+  --ds-ver-text:      #166534;
+  --ds-ver-border:    #BBF7D0;
+  --ds-unver-bg:      #FEF2F2;
+  --ds-unver-text:    #991B1B;
+  --ds-unver-border:  #FECACA;
 
-  --secondary: #f5f5f5;
-  --secondary-foreground: #171717;
+  /* ── Семантические (успех / ошибка / предупреждение) ── */
+  --ds-success:       #166534;
+  --ds-success-bg:    #F0FDF4;
+  --ds-error:         #991B1B;
+  --ds-error-bg:      #FEF2F2;
+  --ds-warning:       #92400E;
+  --ds-warning-bg:    #FEF3C7;
 
-  --muted: #f5f5f5;
-  --muted-foreground: #737373;
+  /* ── Типографика ── */
+  --ds-font-heading:  var(--font-lexend), sans-serif;
+  --ds-font-body:     var(--font-source), sans-serif;
 
-  --accent: #f5f5f5;
-  --accent-foreground: #171717;
+  /* ── Отступы (8px grid) ── */
+  --ds-sp-1:  4px;
+  --ds-sp-2:  8px;
+  --ds-sp-3:  12px;
+  --ds-sp-4:  16px;
+  --ds-sp-5:  20px;
+  --ds-sp-6:  24px;
+  --ds-sp-8:  32px;
+  --ds-sp-10: 40px;
+  --ds-sp-12: 48px;
+  --ds-sp-16: 64px;
+  --ds-sp-20: 80px;
 
-  --destructive: #ef4444;
+  /* ── Скругления ── */
+  --ds-r-sm:   4px;
+  --ds-r-md:   6px;
+  --ds-r-lg:   8px;
+  --ds-r-xl:   12px;
+  --ds-r-pill: 100px;
 
-  --border: #e0e0e0;
-  --input: #e0e0e0;
-  --ring: #2563eb;
+  /* ── Тени (нет на hero/dark-секциях) ── */
+  --ds-shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --ds-shadow-md: 0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -2px rgba(0,0,0,0.04);
+  --ds-shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -4px rgba(0,0,0,0.03);
+
+  /* ── Layout ── */
+  --ds-nav-h:   64px;
+  --ds-max-w:   1280px;
+  --ds-pad:     32px;
+
+  /* ── Z-index шкала ── */
+  --ds-z-base:  10;
+  --ds-z-nav:   20;
+  --ds-z-modal: 30;
+  --ds-z-toast: 50;
 }
 
+/* ── Тёмная тема ── */
 .dark {
-  --background: #0a0a0a;
-  --foreground: #ededed;
+  --background:           #0F172A;
+  --foreground:           #F8FAFC;
+  --card:                 #1E293B;
+  --card-foreground:      #F8FAFC;
+  --popover:              #1E293B;
+  --popover-foreground:   #F8FAFC;
+  --primary:              #38BDF8;
+  --primary-foreground:   #0F172A;
+  --secondary:            #1E293B;
+  --secondary-foreground: #F8FAFC;
+  --muted:                #1E293B;
+  --muted-foreground:     #94A3B8;
+  --accent:               #1E293B;
+  --accent-foreground:    #F8FAFC;
+  --destructive:          #F87171;
+  --border:               #1E293B;
+  --input:                #1E293B;
+  --ring:                 #38BDF8;
 
-  --card: #171717;
-  --card-foreground: #ededed;
+  --ds-navy:       #020617;
+  --ds-navy-mid:   #0F172A;
+  --ds-navy-light: #1E293B;
+  --ds-blue:       #38BDF8;
+  --ds-blue-dark:  #7DD3FC;
+  --ds-blue-light: #0C4A6E;
+  --ds-blue-xlight:#082F49;
+  --ds-text:       #F8FAFC;
+  --ds-text-sec:   #94A3B8;
+  --ds-text-muted: #475569;
+  --ds-bg:         #020617;
+  --ds-bg-white:   #0F172A;
+  --ds-border:     #1E293B;
+  --ds-border-str: #334155;
 
-  --popover: #171717;
-  --popover-foreground: #ededed;
+  --ds-new-bg:     #1E3A5F;
+  --ds-new-text:   #93C5FD;
+  --ds-active-bg:  #14532D;
+  --ds-active-text:#86EFAC;
+  --ds-select-bg:  #451A03;
+  --ds-select-text:#FCD34D;
+  --ds-done-bg:    #1E293B;
+  --ds-done-text:  #94A3B8;
 
-  --primary: #60a5fa;
-  --primary-foreground: #0a0a0a;
-
-  --secondary: #262626;
-  --secondary-foreground: #ededed;
-
-  --muted: #262626;
-  --muted-foreground: #a3a3a3;
-
-  --accent: #262626;
-  --accent-foreground: #ededed;
-
-  --destructive: #f87171;
-
-  --border: #2e2e2e;
-  --input: #2e2e2e;
-  --ring: #60a5fa;
+  --ds-ver-bg:     #14532D;
+  --ds-ver-text:   #86EFAC;
+  --ds-ver-border: #166534;
+  --ds-unver-bg:   #450A0A;
+  --ds-unver-text: #FCA5A5;
+  --ds-unver-border:#991B1B;
 }
 
+/* ── Base styles ── */
 html {
   height: 100%;
   color-scheme: light dark;
 }
 
-html,
-body {
+html, body {
   max-width: 100vw;
   overflow-x: hidden;
 }
@@ -111,7 +213,7 @@ body {
   flex-direction: column;
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--ds-font-body, Arial, Helvetica, sans-serif);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -125,4 +227,11 @@ body {
 a {
   color: inherit;
   text-decoration: none;
+}
+
+/* Клавиатурная навигация — WCAG AA (focus-visible, не :focus, чтобы не мешать мыши) */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--ds-r-sm);
 }

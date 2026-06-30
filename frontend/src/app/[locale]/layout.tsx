@@ -1,13 +1,31 @@
 import type { Metadata } from "next";
 import { NextIntlClientProvider, hasLocale } from "next-intl";
 import { notFound } from "next/navigation";
+import { Lexend, Source_Sans_3 } from "next/font/google";
 
 import { routing } from "@/i18n/routing";
 import "../globals.css";
 
+/* Шрифты загружаются один раз на уровне root layout.
+   CSS-переменные --font-lexend и --font-source доступны всем дочерним компонентам.
+   Страницы НЕ должны импортировать шрифты повторно. */
+const lexend = Lexend({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-lexend",
+  display: "swap",
+});
+
+const sourceSans3 = Source_Sans_3({
+  subsets: ["latin", "cyrillic"],
+  weight: ["300", "400", "500", "600", "700"],
+  variable: "--font-source",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: "EOSpatial Marketplace",
-  description: "Маркетплейс инженерных изысканий",
+  description: "Маркетплейс инженерных изысканий · Казахстан",
 };
 
 export default async function LocaleLayout({
@@ -23,8 +41,11 @@ export default async function LocaleLayout({
   }
 
   return (
-    // suppressHydrationWarning нужен, т.к. тема (dark/light) может меняться на клиенте
-    <html lang={locale} suppressHydrationWarning>
+    <html
+      lang={locale}
+      suppressHydrationWarning
+      className={`${lexend.variable} ${sourceSans3.variable}`}
+    >
       <body>
         <NextIntlClientProvider>{children}</NextIntlClientProvider>
       </body>
