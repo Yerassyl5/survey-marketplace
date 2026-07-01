@@ -117,7 +117,7 @@ export function AppFooter({ compact = false }: AppFooterProps) {
                     color: "#F8FAFC",
                   }}
                 >
-                  EOSpatial
+                  ПроГео
                 </span>
               </div>
               <p
@@ -139,7 +139,7 @@ export function AppFooter({ compact = false }: AppFooterProps) {
                   lineHeight: 1.7,
                 }}
               >
-                support@eospatial.kz
+                support@progeo.kz
                 <br />
                 +7 (727) 000-00-00
               </p>
@@ -178,7 +178,7 @@ export function AppFooter({ compact = false }: AppFooterProps) {
               color: "#334155",
             }}
           >
-            © 2026 EOSpatial. Все права защищены.
+            © 2026 ПроГео. Все права защищены.
           </span>
           <div style={{ display: "flex", gap: 24 }}>
             {["Условия использования", "Политика конфиденциальности"].map((l) => (

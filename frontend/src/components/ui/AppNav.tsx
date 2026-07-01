@@ -61,7 +61,7 @@ function Logo() {
           letterSpacing: "-0.01em",
         }}
       >
-        EOSpatial
+        ПроГео
       </span>
     </a>
   );
@@ -92,7 +92,7 @@ const DEFAULT_PUBLIC_LINKS: AppNavLink[] = [
 ];
 
 const DEFAULT_APP_LINKS: AppNavLink[] = [
-  { label: "Лента заявок", href: "/ru/institutional" },
+  { label: "Лента заявок", href: "#" },
   { label: "Мои отклики", href: "#" },
   { label: "Профиль", href: "#" },
 ];

@@ -24,7 +24,7 @@ const sourceSans3 = Source_Sans_3({
 });
 
 export const metadata: Metadata = {
-  title: "EOSpatial Marketplace",
+  title: "ПроГео",
   description: "Маркетплейс инженерных изысканий · Казахстан",
 };
 

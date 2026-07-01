@@ -135,7 +135,8 @@
 - [x] **`docs/design-system.md`** — полный справочник: палитра, типографика, компоненты, правила, план экранов
 - [x] **Удалены демо-страницы:** design-geo, design-authority, design-preview, design-institutional, design-swiss, design-flat
 - [x] **`/ru/landing`** — публичная главная: Hero (navy) + Stats + Как работает + Для кого + Преимущества + Верификация + Превью заявок (blur-оверлей) + Dual CTA + Footer
-- [x] **`/ru/institutional`** — лента заявок (референс первого рабочего экрана)
+- [x] **Название проекта закреплено: «ПроГео» (ProGeo).** Заменено во всём фронтенде (AppNav, AppFooter, `/ru/landing`, `layout.tsx` metadata), в Swagger-заголовке бэкенда (`SPECTACULAR_SETTINGS.TITLE`) и в `docs/design-system.md`. Email в футере — `support@progeo.kz`.
+- [x] **Удалены устаревшие артефакты:** `/ru/institutional` (демо-референс первого рабочего экрана — статичный, без реального API, реальная лента строится заново по дизайн-системе) и `design-system/eospatial/` (черновой артефакт с несовпадающей палитрой — фиолетовый/зелёный — от раннего дизайн-эксперимента, единственный источник правды по дизайну — `docs/design-system.md`)
 
 **Отложено до первого рабочего экрана:** `FilterBar.tsx`, `RequestRow.tsx` — тесно связаны с API-данными.
 

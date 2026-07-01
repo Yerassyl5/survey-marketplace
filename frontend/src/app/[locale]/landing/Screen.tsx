@@ -102,7 +102,7 @@ function Nav() {
               <line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/>
             </svg>
           </div>
-          <span style={{ fontFamily: "var(--font-lexend), sans-serif", fontSize: 16, fontWeight: 700, color: T.text }}>EOSpatial</span>
+          <span style={{ fontFamily: "var(--font-lexend), sans-serif", fontSize: 16, fontWeight: 700, color: T.text }}>ПроГео</span>
         </a>
 
         {/* Ссылки */}
@@ -351,7 +351,7 @@ function Advantages() {
       <div style={{ maxWidth: 1280, margin: "0 auto" }}>
         <div style={{ textAlign: "center", marginBottom: 48 }}>
           <p style={{ fontFamily: "var(--font-source), sans-serif", fontSize: 12, fontWeight: 700, color: T.blue, textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 10px" }}>Преимущества</p>
-          <h2 style={{ fontFamily: "var(--font-lexend), sans-serif", fontSize: 36, fontWeight: 700, color: T.text, letterSpacing: "-0.02em", margin: 0 }}>Почему EOSpatial</h2>
+          <h2 style={{ fontFamily: "var(--font-lexend), sans-serif", fontSize: 36, fontWeight: 700, color: T.text, letterSpacing: "-0.02em", margin: 0 }}>Почему ПроГео</h2>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20 }}>
           {items.map(item => (
@@ -375,7 +375,7 @@ function Advantages() {
 function Verification() {
   const steps = [
     { title: "Загрузка документов", desc: "Исполнитель загружает лицензию на проведение изысканий и аттестат специалиста в личном кабинете" },
-    { title: "Проверка модератором", desc: "Модератор EOSpatial проверяет подлинность документов и соответствие допусков заявленным видам работ" },
+    { title: "Проверка модератором", desc: "Модератор ПроГео проверяет подлинность документов и соответствие допусков заявленным видам работ" },
     { title: "Статус «Верифицирован»", desc: "Исполнитель получает доступ к заявкам. Заказчики видят статус верификации при каждом отклике" },
   ];
   return (
@@ -574,7 +574,7 @@ function Footer() {
               <div style={{ width: 26, height: 26, background: T.blue, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/><line x1="12" y1="1" x2="12" y2="4"/></svg>
               </div>
-              <span style={{ fontFamily: "var(--font-lexend), sans-serif", fontSize: 15, fontWeight: 700, color: T.white }}>EOSpatial</span>
+              <span style={{ fontFamily: "var(--font-lexend), sans-serif", fontSize: 15, fontWeight: 700, color: T.white }}>ПроГео</span>
             </div>
             <p style={{ fontFamily: "var(--font-source), sans-serif", fontSize: 13, color: "#475569", lineHeight: 1.7, margin: "0 0 16px" }}>
               Платформа инженерных изысканий для Казахстана. Геодезия, геология, геофизика.
@@ -612,7 +612,7 @@ function Footer() {
           </div>
         </div>
         <div style={{ borderTop: "1px solid #1E293B", paddingTop: 20, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontFamily: "var(--font-source), sans-serif", fontSize: 12, color: "#334155" }}>© 2026 EOSpatial. Все права защищены.</span>
+          <span style={{ fontFamily: "var(--font-source), sans-serif", fontSize: 12, color: "#334155" }}>© 2026 ПроГео. Все права защищены.</span>
           <div style={{ display: "flex", gap: 24 }}>
             {["Условия использования", "Политика конфиденциальности"].map(l => (
               <a key={l} href="#" style={{ fontFamily: "var(--font-source), sans-serif", fontSize: 12, color: "#334155", textDecoration: "none" }}>{l}</a>

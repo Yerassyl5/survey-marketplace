@@ -123,7 +123,7 @@ SIMPLE_JWT = {
 }
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "EOSpatial Marketplace API",
+    "TITLE": "ПроГео API",
     "DESCRIPTION": "Маркетплейс инженерных изысканий — API для заказчиков и исполнителей.",
     "VERSION": "0.1.0",
     "SERVE_INCLUDE_SCHEMA": False,
