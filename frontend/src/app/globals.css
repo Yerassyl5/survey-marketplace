@@ -235,3 +235,17 @@ a {
   outline-offset: 2px;
   border-radius: var(--ds-r-sm);
 }
+
+/* Спиннер загрузки (auth-guard приватных экранов и async-состояния форм) */
+@keyframes progeo-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

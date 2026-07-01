@@ -12,6 +12,14 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-insecure-secret-key")
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
+# Фронтенд стучится на /api/* через свой origin (next.config.ts проксирует на backend),
+# поэтому этот origin нужно явно доверять для проверки Origin в CsrfViewMiddleware —
+# иначе любой запрос, аутентифицированный через Django-сессию (не JWT), получит 403
+# "CSRF Failed: Origin checking failed".
+CSRF_TRUSTED_ORIGINS = os.environ.get(
+    "DJANGO_CSRF_TRUSTED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
+).split(",")
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -104,9 +112,16 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.User"
 
 REST_FRAMEWORK = {
+    # Только JWT: фронтенд — stateless (Bearer-токен из localStorage, см.
+    # docs/progress.md), сессионная аутентификация тут не нужна и не должна
+    # использоваться. SessionAuthentication раньше был в списке по умолчанию
+    # и создавал скрытый баг: если в том же браузере (на localhost, любой
+    # порт — Django-сессия не привязана к порту) залогинены в Django Admin,
+    # DRF начинал требовать CSRF-токен для НАШЕГО JWT-API, которого фронтенд
+    # никогда не отправляет. Django Admin — отдельное приложение, использует
+    # свою сессию/CSRF напрямую и в этой настройке не нуждается.
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
-        "rest_framework.authentication.SessionAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",

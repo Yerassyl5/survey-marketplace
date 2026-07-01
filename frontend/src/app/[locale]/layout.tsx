@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { Lexend, Source_Sans_3 } from "next/font/google";
 
 import { routing } from "@/i18n/routing";
+import { AuthProvider } from "@/contexts/AuthContext";
 import "../globals.css";
 
 /* Шрифты загружаются один раз на уровне root layout.
@@ -47,7 +48,9 @@ export default async function LocaleLayout({
       className={`${lexend.variable} ${sourceSans3.variable}`}
     >
       <body>
-        <NextIntlClientProvider>{children}</NextIntlClientProvider>
+        <NextIntlClientProvider>
+          <AuthProvider>{children}</AuthProvider>
+        </NextIntlClientProvider>
       </body>
     </html>
   );

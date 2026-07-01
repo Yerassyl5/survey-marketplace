@@ -70,7 +70,7 @@ function Logo() {
 /* ── Типы ───────────────────────────────────────────────────────────────── */
 export interface AppNavUser {
   name: string;
-  role: "client" | "contractor";
+  role: "customer" | "contractor";
 }
 
 export interface AppNavLink {
@@ -140,7 +140,7 @@ export function AppNav({
   });
 
   const ROLE_LABEL: Record<string, string> = {
-    client: "Заказчик",
+    customer: "Заказчик",
     contractor: "Исполнитель",
   };
 
