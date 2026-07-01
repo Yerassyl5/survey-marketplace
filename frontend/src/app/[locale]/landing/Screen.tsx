@@ -580,7 +580,7 @@ function Footer() {
               Платформа инженерных изысканий для Казахстана. Геодезия, геология, геофизика.
             </p>
             <p style={{ fontFamily: "var(--font-source), sans-serif", fontSize: 12, color: "#334155" }}>
-              support@eospatial.kz<br />+7 (727) 000-00-00
+              support@progeo.kz<br />+7 (727) 000-00-00
             </p>
           </div>
           {/* Платформа */}
