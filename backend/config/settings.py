@@ -68,9 +68,9 @@ WSGI_APPLICATION = "config.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.contrib.gis.db.backends.postgis",
-        "NAME": os.environ.get("POSTGRES_DB", "eospatial"),
-        "USER": os.environ.get("POSTGRES_USER", "eospatial"),
-        "PASSWORD": os.environ.get("POSTGRES_PASSWORD", "eospatial"),
+        "NAME": os.environ.get("POSTGRES_DB", "progeo"),
+        "USER": os.environ.get("POSTGRES_USER", "progeo"),
+        "PASSWORD": os.environ.get("POSTGRES_PASSWORD", "progeo"),
         "HOST": os.environ.get("POSTGRES_HOST", "db"),
         "PORT": os.environ.get("POSTGRES_PORT", "5432"),
     }
@@ -145,7 +145,7 @@ STORAGES = {
 }
 AWS_ACCESS_KEY_ID = os.environ.get("MINIO_ROOT_USER", "minioadmin")
 AWS_SECRET_ACCESS_KEY = os.environ.get("MINIO_ROOT_PASSWORD", "minioadmin")
-AWS_STORAGE_BUCKET_NAME = os.environ.get("MINIO_BUCKET", "eospatial")
+AWS_STORAGE_BUCKET_NAME = os.environ.get("MINIO_BUCKET", "progeo")
 AWS_S3_ENDPOINT_URL = os.environ.get("MINIO_ENDPOINT", "http://minio:9000")
 # Публичный адрес для подписи ссылок, которые открывает браузер пользователя
 # (внутри docker-сети контейнеры обращаются друг к другу по MINIO_ENDPOINT).
