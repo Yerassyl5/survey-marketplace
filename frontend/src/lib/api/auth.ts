@@ -12,13 +12,13 @@ import type {
   MeResponse,
 } from "./types";
 
-export async function login(payload: LoginPayload): Promise<LoginResponse> {
+export async function login(payload: LoginPayload, remember: boolean = true): Promise<LoginResponse> {
   const data = await apiFetch<LoginResponse>("/accounts/login/", {
     method: "POST",
     body: JSON.stringify(payload),
     auth: false,
   });
-  setTokens(data.access, data.refresh);
+  setTokens(data.access, data.refresh, remember);
   return data;
 }
 

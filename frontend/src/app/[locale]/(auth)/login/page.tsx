@@ -26,6 +26,7 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(true);
   const [emailTouched, setEmailTouched] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -47,7 +48,7 @@ export default function LoginPage() {
 
     setIsSubmitting(true);
     try {
-      await login(email, password);
+      await login(email, password, remember);
       router.push("/");
     } catch (err) {
       if (err instanceof ApiError) {
@@ -114,6 +115,47 @@ export default function LoginPage() {
                 placeholder="••••••••"
               />
             </FormField>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  fontFamily: "var(--ds-font-body)",
+                  fontSize: 14,
+                  color: "var(--ds-text)",
+                  cursor: "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={remember}
+                  onChange={(e) => setRemember(e.target.checked)}
+                  style={{ width: 16, height: 16, accentColor: "var(--ds-blue)" }}
+                />
+                Запомнить меня
+              </label>
+              <p
+                style={{
+                  fontFamily: "var(--ds-font-body)",
+                  fontSize: 12,
+                  color: "var(--ds-text-muted)",
+                  margin: "0 0 0 24px",
+                }}
+              >
+                Оставаться в системе на этом устройстве. На общем компьютере снимите галочку.
+              </p>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: -8 }}>
+              <Link
+                href="/forgot-password"
+                style={{ fontFamily: "var(--ds-font-body)", fontSize: 13, color: "var(--ds-blue)", fontWeight: 600, textDecoration: "none" }}
+              >
+                Забыли пароль?
+              </Link>
+            </div>
 
             <Button type="submit" disabled={isSubmitting} style={{ height: 44, marginTop: 4 }}>
               {isSubmitting ? "Вход…" : "Войти"}

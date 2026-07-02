@@ -17,7 +17,7 @@ import type { MeResponse } from "@/lib/api/types";
 interface AuthContextValue {
   user: MeResponse | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<MeResponse>;
+  login: (email: string, password: string, remember?: boolean) => Promise<MeResponse>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<MeResponse | null>;
 }
@@ -54,8 +54,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [refreshUser]);
 
-  const login = useCallback(async (email: string, password: string) => {
-    await authApi.login({ email, password });
+  const login = useCallback(async (email: string, password: string, remember: boolean = true) => {
+    await authApi.login({ email, password }, remember);
     const data = await authApi.me();
     setUser(data);
     return data;
