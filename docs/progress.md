@@ -86,6 +86,14 @@
       хеширует корректно (`pbkdf2_sha256...`, `check_password()` проходит). Попутно исправлен пароль
       `bake@mail.ru`, который был сломан (см. выше) — временный пароль `NewSecurePass123`,
       пользователю нужно сообщить и/или сменить через профиль.
+    - **(доп. 2026-07-02) Столбец «Организация» в списках админки** — для модерации без
+      захода в карточку пользователя. `UserAdmin.list_display`: `organization_name_display`
+      (метод, `obj.organization_name or "—"` — у физлиц прочерк). `ContractorProfileAdmin.list_display`:
+      `organization` (метод, тянет `obj.user.organization_name`, т.к. поле на связанной `User`,
+      не на `ContractorProfile`) + `list_select_related = ["user"]`, чтобы не было N+1 при
+      отрисовке списка. Проверено интеграционным тестом (`Client` + `CaptureQueriesContext`):
+      8 строк `ContractorProfile` → 5 запросов на весь changelist (не 8+1), заголовок и прочерк
+      отображаются в обеих таблицах.
   - sites: SiteAdmin с GISModelAdmin (карта), list_select_related, ordering
   - marketplace: RequestAdmin (date_hierarchy, list_select_related, site в колонке) + ResultFileInline; BidAdmin (фильтр по work_type, поиск по city/description)
   - Жалобы — модель появится в 2.1 (репутация), Admin добавить тогда же

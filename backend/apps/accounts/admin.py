@@ -17,7 +17,16 @@ class UserAdmin(DjangoUserAdmin):
     add_form = UserCreationForm
     model = User
 
-    list_display = ["email", "full_name", "phone", "role", "person_type", "is_active", "date_joined"]
+    list_display = [
+        "email",
+        "full_name",
+        "phone",
+        "role",
+        "person_type",
+        "organization_name_display",
+        "is_active",
+        "date_joined",
+    ]
     list_filter = ["role", "person_type", "is_active"]
     search_fields = ["email", "full_name", "iin", "bin", "organization_name"]
     ordering = ["-date_joined"]
@@ -54,11 +63,16 @@ class UserAdmin(DjangoUserAdmin):
         ),
     )
 
+    @admin.display(description="Организация")
+    def organization_name_display(self, obj: User) -> str:
+        return obj.organization_name or "—"
+
 
 @admin.register(ContractorProfile)
 class ContractorProfileAdmin(admin.ModelAdmin):
     list_display = [
         "user",
+        "organization",
         "verification_status",
         "verification_method",
         "license_expiry",
@@ -67,6 +81,7 @@ class ContractorProfileAdmin(admin.ModelAdmin):
     ]
     list_filter = ["verification_status", "verification_method"]
     list_editable = ["verification_status"]
+    list_select_related = ["user"]
     search_fields = ["user__email", "user__full_name", "license_number", "attestation_number"]
     readonly_fields = ["user", "created_at", "updated_at"]
     fieldsets = [
@@ -78,6 +93,10 @@ class ContractorProfileAdmin(admin.ModelAdmin):
         ("Верификация", {"fields": ["verification_status", "verification_method"]}),
         ("Служебное", {"fields": ["created_at", "updated_at"]}),
     ]
+
+    @admin.display(description="Организация")
+    def organization(self, obj: ContractorProfile) -> str:
+        return obj.user.organization_name or "—"
 
     @admin.display(description="Лицензия")
     def license_scan_link(self, obj: ContractorProfile) -> str:
