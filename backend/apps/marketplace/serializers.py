@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 from rest_framework import serializers
 from rest_framework_gis.fields import GeometryField
 
 from common.events import publish
 
 from .events import BidPlaced, RequestCreated
-from .models import Bid, Request, ResultFile
+from .models import Bid, LocationType, Request, ResultFile
 
 
 class ContractorBriefSerializer(serializers.Serializer):
@@ -20,12 +22,23 @@ class ContractorBriefSerializer(serializers.Serializer):
         return profile.verification_status if profile else None
 
 
+class CustomerBriefSerializer(serializers.Serializer):
+    """Заказчик — открытая информация в ленте (кто разместил заявку), не секрет."""
+    id = serializers.IntegerField()
+    full_name = serializers.CharField()
+    organization_name = serializers.CharField(allow_blank=True)
+
+
 class BidSerializer(serializers.ModelSerializer):
     contractor = ContractorBriefSerializer(read_only=True)
+    # Цена и срок — предложение исполнителя, обязательны при отклике (переопределяем
+    # blank=True/null=True модели, которые нужны только для прямого создания в БД).
+    price = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0"))
+    deadline_days = serializers.IntegerField(min_value=1)
 
     class Meta:
         model = Bid
-        fields = ["id", "contractor", "comment", "status", "created_at"]
+        fields = ["id", "contractor", "comment", "price", "deadline_days", "status", "created_at"]
         read_only_fields = ["id", "contractor", "status", "created_at"]
 
     def create(self, validated_data):
@@ -44,24 +57,52 @@ class ResultFileSerializer(serializers.ModelSerializer):
         fields = ["id", "file", "original_name", "uploaded_at"]
 
 
-class RequestSerializer(serializers.ModelSerializer):
+class RequestLocationValidationMixin:
+    """Условная обязательность локации: city при location_type=city,
+    district при location_type=district (тот же приём, что ИИН/БИН в accounts)."""
+
+    def validate(self, attrs):
+        location_type = attrs.get("location_type", getattr(self.instance, "location_type", None))
+        city = attrs.get("city", getattr(self.instance, "city", None))
+        district = attrs.get("district", getattr(self.instance, "district", None))
+        if location_type == LocationType.CITY:
+            if not city:
+                raise serializers.ValidationError({"city": "Обязателен при локации «Город»."})
+            if district:
+                raise serializers.ValidationError({"district": "Не заполняется при локации «Город»."})
+        elif location_type == LocationType.DISTRICT:
+            if not district:
+                raise serializers.ValidationError({"district": "Обязателен при локации «Район»."})
+            if city:
+                raise serializers.ValidationError({"city": "Не заполняется при локации «Район»."})
+        return attrs
+
+
+class RequestSerializer(RequestLocationValidationMixin, serializers.ModelSerializer):
+    """Для ЗАКАЗЧИКА — его собственные заявки. Показывает bids_count (число откликов),
+    НЕ показывает customer (это он сам)."""
     geometry = GeometryField(required=False, allow_null=True)
     bids_count = serializers.IntegerField(source="bids.count", read_only=True)
     result_files = ResultFileSerializer(many=True, read_only=True)
+    location_display = serializers.SerializerMethodField()
 
     class Meta:
         model = Request
         fields = [
             "id", "site", "work_type", "description", "tz_file",
-            "geometry", "city", "status", "assigned_contractor",
+            "geometry", "location_type", "city", "district", "location_display",
+            "status", "assigned_contractor",
             "result_files", "result_note", "bids_count",
             "created_at", "updated_at",
         ]
         read_only_fields = [
             "id", "status", "assigned_contractor",
             "result_files", "result_note", "bids_count",
-            "created_at", "updated_at",
+            "created_at", "updated_at", "location_display",
         ]
+
+    def get_location_display(self, obj: Request) -> str:
+        return obj.location_label
 
     def create(self, validated_data):
         validated_data["customer"] = self.context["request"].user
@@ -69,7 +110,29 @@ class RequestSerializer(serializers.ModelSerializer):
         publish(RequestCreated(
             request_id=request_obj.id,
             niche=request_obj.work_type,
-            city=request_obj.city,
+            city=request_obj.location_label,
             site_id=request_obj.site_id,
         ))
         return request_obj
+
+
+class RequestFeedSerializer(serializers.ModelSerializer):
+    """Для ИСПОЛНИТЕЛЯ — лента открытых заявок. Показывает customer (открытая
+    информация — кто заказчик), НЕ показывает bids_count: если исполнители видят
+    «0 откликов», они понимают отсутствие конкуренции и завышают цену — скрытие
+    защищает от манипуляции ценами. Только чтение, всегда через GET open-фида."""
+    customer = CustomerBriefSerializer(read_only=True)
+    geometry = GeometryField(required=False, allow_null=True)
+    location_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Request
+        fields = [
+            "id", "site", "work_type", "description", "tz_file",
+            "geometry", "location_type", "city", "district", "location_display",
+            "customer", "created_at", "updated_at",
+        ]
+        read_only_fields = fields
+
+    def get_location_display(self, obj: Request) -> str:
+        return obj.location_label

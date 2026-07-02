@@ -15,7 +15,7 @@ from common.events import publish
 
 from .events import DealCompleted, RequestAccepted, RequestAwarded, ResultReturned, ResultSubmitted
 from .models import Bid, BidStatus, Request, RequestStatus, ResultFile
-from .serializers import BidSerializer, RequestSerializer
+from .serializers import BidSerializer, RequestFeedSerializer, RequestSerializer
 
 
 class IsCustomer(permissions.BasePermission):
@@ -43,6 +43,12 @@ class ContractorCanBid(permissions.BasePermission):
         return True
 
 
+REQUEST_SELECT_RELATED = (
+    "customer", "assigned_contractor", "site",
+    "city", "city__region", "district", "district__region",
+)
+
+
 @extend_schema_view(
     get=extend_schema(summary="Лента заявок (заказчику — свои, исполнителю — открытые)"),
     post=extend_schema(summary="Создание заявки заказчиком"),
@@ -50,42 +56,65 @@ class ContractorCanBid(permissions.BasePermission):
 @extend_schema(tags=["marketplace"])
 class RequestListCreateView(generics.ListCreateAPIView):
     """
-    GET заказчик  → свои заявки.
-    GET исполнитель → лента открытых заявок (фильтры: work_type, city).
+    GET заказчик  → свои заявки (RequestSerializer, с bids_count).
+    GET исполнитель → лента открытых заявок (RequestFeedSerializer — без
+    bids_count, зато с customer; фильтры: work_type, region_id/district_id/city_id).
     POST заказчик → создать заявку.
     """
-    serializer_class = RequestSerializer
 
     def get_permissions(self):
         if self.request.method == "POST":
             return [IsCustomer()]
         return [permissions.IsAuthenticated()]
 
+    def get_serializer_class(self):
+        # getattr, не user.role напрямую: drf-spectacular интроспектирует схему
+        # с AnonymousUser (нет атрибута role), permission_classes тут не спасают.
+        role = getattr(self.request.user, "role", None)
+        if self.request.method == "POST" or role == Role.CUSTOMER:
+            return RequestSerializer
+        return RequestFeedSerializer
+
     def get_queryset(self):
         user = self.request.user
-        qs = Request.objects.select_related("customer", "assigned_contractor", "site").prefetch_related("result_files")
+        qs = Request.objects.select_related(*REQUEST_SELECT_RELATED).prefetch_related("result_files")
         if user.role == Role.CUSTOMER:
             return qs.filter(customer=user)
-        # Исполнитель видит ленту открытых заявок с фильтрацией по нише и городу
+        # Исполнитель видит только открытую ленту (инвариант: как только заявка
+        # awarded, она пропадает из ленты — дальнейшие статусы видят только
+        # заказчик и выбранный исполнитель).
         qs = qs.filter(status=RequestStatus.OPEN)
         work_type = self.request.query_params.get("work_type")
-        city = self.request.query_params.get("city")
+        region_id = self.request.query_params.get("region_id")
+        district_id = self.request.query_params.get("district_id")
+        city_id = self.request.query_params.get("city_id")
         if work_type:
             qs = qs.filter(work_type=work_type)
-        if city:
-            qs = qs.filter(city__icontains=city)
+        if district_id:
+            qs = qs.filter(district_id=district_id)
+        if city_id:
+            qs = qs.filter(city_id=city_id)
+        if region_id:
+            qs = qs.filter(Q(city__region_id=region_id) | Q(district__region_id=region_id))
         return qs
 
 
 @extend_schema(tags=["marketplace"], summary="Детали заявки")
 class RequestDetailView(generics.RetrieveAPIView):
-    """Детали заявки: заказчик (владелец) или исполнитель (открытые + назначенные)."""
-    serializer_class = RequestSerializer
+    """Детали заявки: заказчик (владелец, RequestSerializer) или исполнитель
+    (открытые + назначенные ему, RequestFeedSerializer — те же правила видимости
+    полей, что и в ленте)."""
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_serializer_class(self):
+        role = getattr(self.request.user, "role", None)
+        if role == Role.CUSTOMER:
+            return RequestSerializer
+        return RequestFeedSerializer
 
     def get_queryset(self):
         user = self.request.user
-        qs = Request.objects.select_related("customer", "assigned_contractor", "site").prefetch_related("result_files")
+        qs = Request.objects.select_related(*REQUEST_SELECT_RELATED).prefetch_related("result_files")
         if user.role == Role.CUSTOMER:
             return qs.filter(customer=user)
         return qs.filter(Q(status=RequestStatus.OPEN) | Q(assigned_contractor=user))

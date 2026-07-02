@@ -7,9 +7,10 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from apps.accounts.models import ContractorProfile, Role, User, VerificationStatus
+from apps.geo.models import City, District, Region
 from apps.sites.models import Site
 
-from .models import BidStatus, Request, RequestStatus
+from .models import Bid, BidStatus, LocationType, Request, RequestStatus
 
 
 def make_customer(email="customer@test.kz"):
@@ -33,15 +34,34 @@ def make_site(owner):
     return Site.objects.create(owner=owner, address="г. Алматы", geometry=Point(76.9, 43.2))
 
 
+def make_city(name="Алматы", region=None):
+    """Город республиканского значения по умолчанию (region=None), как Алматы/Астана/Шымкент.
+    get_or_create — справочник уже наполнен data-миграцией geo.0002_load_kato_data."""
+    city, _ = City.objects.get_or_create(name=name, region=region)
+    return city
+
+
+def make_district():
+    region, _ = Region.objects.get_or_create(name="Акмолинская область")
+    district, _ = District.objects.get_or_create(region=region, name="Аршалынский район")
+    return region, district
+
+
 class RequestLifecycleTest(TestCase):
     def setUp(self):
         self.customer = make_customer()
         self.contractor = make_contractor()
         self.site = make_site(self.customer)
+        self.city = make_city()
         self.client_c = APIClient()   # клиент заказчика
         self.client_e = APIClient()   # клиент исполнителя
         self.client_c.force_authenticate(self.customer)
         self.client_e.force_authenticate(self.contractor)
+
+    def _bid_payload(self, **overrides):
+        payload = {"comment": "Готов выполнить", "price": "150000.00", "deadline_days": 14}
+        payload.update(overrides)
+        return payload
 
     # ------------------------------------------------------------------
     # Создание заявки
@@ -51,22 +71,54 @@ class RequestLifecycleTest(TestCase):
             "site": self.site.id,
             "work_type": "geodesy",
             "description": "Топосъёмка участка",
-            "city": "Алматы",
+            "location_type": "city",
+            "city": self.city.id,
         }, format="json")
         self.assertEqual(r.status_code, 201)
         self.assertEqual(r.data["status"], RequestStatus.OPEN)
+        self.assertEqual(r.data["location_display"], "Алматы")
+
+    def test_customer_creates_request_with_district(self):
+        _, district = make_district()
+        r = self.client_c.post("/api/marketplace/requests/", {
+            "site": self.site.id,
+            "work_type": "geodesy",
+            "description": "Топосъёмка участка",
+            "location_type": "district",
+            "district": district.id,
+        }, format="json")
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.data["location_display"], "Акмолинская область, Аршалынский район")
+
+    def test_request_city_type_requires_city_field(self):
+        r = self.client_c.post("/api/marketplace/requests/", {
+            "site": self.site.id, "work_type": "geodesy",
+            "description": "x", "location_type": "city",
+        }, format="json")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("city", r.data)
+
+    def test_request_district_type_forbids_city_field(self):
+        _, district = make_district()
+        r = self.client_c.post("/api/marketplace/requests/", {
+            "site": self.site.id, "work_type": "geodesy",
+            "description": "x", "location_type": "district",
+            "district": district.id, "city": self.city.id,
+        }, format="json")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("city", r.data)
 
     def test_contractor_cannot_create_request(self):
         r = self.client_e.post("/api/marketplace/requests/", {
             "site": self.site.id, "work_type": "geodesy",
-            "description": "x", "city": "Алматы",
+            "description": "x", "location_type": "city", "city": self.city.id,
         }, format="json")
         self.assertEqual(r.status_code, 403)
 
     def test_anon_cannot_create_request(self):
         r = APIClient().post("/api/marketplace/requests/", {
             "site": self.site.id, "work_type": "geodesy",
-            "description": "x", "city": "Алматы",
+            "description": "x", "location_type": "city", "city": self.city.id,
         }, format="json")
         self.assertEqual(r.status_code, 401)
 
@@ -76,7 +128,8 @@ class RequestLifecycleTest(TestCase):
     def _create_request(self):
         req = Request.objects.create(
             site=self.site, customer=self.customer,
-            work_type="geodesy", description="x", city="Алматы",
+            work_type="geodesy", description="x",
+            location_type=LocationType.CITY, city=self.city,
         )
         return req
 
@@ -85,6 +138,27 @@ class RequestLifecycleTest(TestCase):
         r = self.client_e.get("/api/marketplace/requests/")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(len(r.data), 1)
+
+    def test_contractor_feed_hides_bids_count_shows_customer(self):
+        """Исполнитель не должен видеть число откликов (защита от манипуляции ценами),
+        но видит заказчика (открытая информация — кто разместил заявку)."""
+        req = self._create_request()
+        Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
+        r = self.client_e.get("/api/marketplace/requests/")
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("bids_count", r.data[0])
+        self.assertIn("customer", r.data[0])
+        self.assertEqual(r.data[0]["customer"]["full_name"], "Заказчик Тест")
+        self.assertNotIn("status", r.data[0])
+
+    def test_customer_own_requests_show_bids_count_not_customer(self):
+        """Заказчик видит число откликов на СВОИ заявки; поле customer ему не нужно (это он сам)."""
+        req = self._create_request()
+        Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
+        r = self.client_c.get("/api/marketplace/requests/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data[0]["bids_count"], 1)
+        self.assertNotIn("customer", r.data[0])
 
     def test_customer_sees_own_requests_only(self):
         self._create_request()
@@ -103,19 +177,36 @@ class RequestLifecycleTest(TestCase):
         r = self.client_e.get(f"/api/marketplace/requests/{req.id}/")
         self.assertEqual(r.status_code, 404)
 
+    def test_awarded_request_disappears_from_contractor_feed(self):
+        req = self._create_request()
+        req.status = RequestStatus.AWARDED
+        req.save()
+        r = self.client_e.get("/api/marketplace/requests/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(r.data), 0)
+
     # ------------------------------------------------------------------
     # Отклик (мягкий вариант — неверифицированный пропускается)
     # ------------------------------------------------------------------
     def test_unverified_contractor_can_bid(self):
         req = self._create_request()
-        r = self.client_e.post(f"/api/marketplace/requests/{req.id}/bids/", {
-            "comment": "Готов выполнить"
-        }, format="json")
+        r = self.client_e.post(f"/api/marketplace/requests/{req.id}/bids/", self._bid_payload(), format="json")
         self.assertEqual(r.status_code, 201)
+        self.assertEqual(str(r.data["price"]), "150000.00")
+        self.assertEqual(r.data["deadline_days"], 14)
+
+    def test_bid_requires_price_and_deadline(self):
+        req = self._create_request()
+        r = self.client_e.post(f"/api/marketplace/requests/{req.id}/bids/", {
+            "comment": "Без цены и срока"
+        }, format="json")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("price", r.data)
+        self.assertIn("deadline_days", r.data)
 
     def test_verification_status_visible_in_bid(self):
         req = self._create_request()
-        self.client_e.post(f"/api/marketplace/requests/{req.id}/bids/", {}, format="json")
+        self.client_e.post(f"/api/marketplace/requests/{req.id}/bids/", self._bid_payload(), format="json")
         r = self.client_c.get(f"/api/marketplace/requests/{req.id}/bids/")
         self.assertEqual(r.status_code, 200)
         self.assertIn("verification_status", r.data[0]["contractor"])
@@ -123,8 +214,8 @@ class RequestLifecycleTest(TestCase):
 
     def test_duplicate_bid_rejected(self):
         req = self._create_request()
-        self.client_e.post(f"/api/marketplace/requests/{req.id}/bids/", {}, format="json")
-        r = self.client_e.post(f"/api/marketplace/requests/{req.id}/bids/", {}, format="json")
+        self.client_e.post(f"/api/marketplace/requests/{req.id}/bids/", self._bid_payload(), format="json")
+        r = self.client_e.post(f"/api/marketplace/requests/{req.id}/bids/", self._bid_payload(), format="json")
         self.assertIn(r.status_code, [400, 409])
 
     def test_customer_cannot_bid(self):
@@ -142,8 +233,7 @@ class RequestLifecycleTest(TestCase):
     # ------------------------------------------------------------------
     def _setup_bid(self):
         req = self._create_request()
-        from .models import Bid
-        bid = Bid.objects.create(request=req, contractor=self.contractor)
+        bid = Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
         return req, bid
 
     def test_award(self):
@@ -220,8 +310,7 @@ class RequestLifecycleTest(TestCase):
     # ------------------------------------------------------------------
     def test_my_bids(self):
         req = self._create_request()
-        from .models import Bid
-        Bid.objects.create(request=req, contractor=self.contractor)
+        Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
         r = self.client_e.get("/api/marketplace/my-bids/")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(len(r.data), 1)

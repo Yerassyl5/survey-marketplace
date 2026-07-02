@@ -22,6 +22,11 @@ class RequestStatus(models.TextChoices):
     ACCEPTED = "accepted", "Принято заказчиком"
 
 
+class LocationType(models.TextChoices):
+    CITY = "city", "Город"
+    DISTRICT = "district", "Район"
+
+
 class BidStatus(models.TextChoices):
     PENDING = "pending", "На рассмотрении"
     SELECTED = "selected", "Выбран"
@@ -45,7 +50,16 @@ class Request(models.Model):
     tz_file = models.FileField(upload_to="marketplace/tz/", blank=True)
     # Уточняющая геометрия на заявке — необязательна, участок уже есть на объекте (Site)
     geometry = gis_models.GeometryField(srid=4326, null=True, blank=True)
-    city = models.CharField(max_length=128)
+    # Локация — город ИЛИ область+район через справочник geo.City/geo.District,
+    # не свободным текстом. Условная обязательность (city при location_type=city,
+    # district при location_type=district) проверяется в сериализаторе.
+    location_type = models.CharField(max_length=20, choices=LocationType.choices)
+    city = models.ForeignKey(
+        "geo.City", on_delete=models.PROTECT, null=True, blank=True, related_name="requests",
+    )
+    district = models.ForeignKey(
+        "geo.District", on_delete=models.PROTECT, null=True, blank=True, related_name="requests",
+    )
     status = models.CharField(
         max_length=20,
         choices=RequestStatus.choices,
@@ -64,8 +78,17 @@ class Request(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    @property
+    def location_label(self) -> str:
+        """«Кокшетау» для города, «Акмолинская область, Аршалынский район» для района."""
+        if self.location_type == LocationType.CITY and self.city_id:
+            return self.city.name
+        if self.location_type == LocationType.DISTRICT and self.district_id:
+            return f"{self.district.region.name}, {self.district.name}"
+        return ""
+
     def __str__(self) -> str:
-        return f"{self.get_work_type_display()} — {self.city} (#{self.pk})"
+        return f"{self.get_work_type_display()} — {self.location_label} (#{self.pk})"
 
 
 class Bid(models.Model):
@@ -77,6 +100,13 @@ class Bid(models.Model):
         limit_choices_to={"role": "contractor"},
     )
     comment = models.TextField(blank=True)
+    # Цена и срок — предложение ИСПОЛНИТЕЛЯ, публикуются вместе с откликом
+    # (не хранятся на Request: заказчик размещает только объём работ,
+    # исполнители сами предлагают цену/срок, заказчик выбирает из предложений).
+    # Nullable на уровне модели (тесты/админка создают Bid напрямую без них),
+    # но обязательны при создании через API — см. BidSerializer.
+    price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    deadline_days = models.PositiveIntegerField(null=True, blank=True)
     status = models.CharField(
         max_length=20,
         choices=BidStatus.choices,
