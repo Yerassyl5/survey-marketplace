@@ -65,6 +65,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     # БИН/ИИН на старте — без автопроверки, просто сохраняются как введены (architecture.md §4.1)
     iin = models.CharField(max_length=12, blank=True)
     bin = models.CharField(max_length=12, blank=True)
+    # Для юрлиц: наименование организации и должность регистрирующего лица
+    organization_name = models.CharField(max_length=255, blank=True)
+    position = models.CharField(max_length=255, blank=True)
 
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)

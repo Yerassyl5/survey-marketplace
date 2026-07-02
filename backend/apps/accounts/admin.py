@@ -10,7 +10,7 @@ from .models import ContractorProfile, User
 class UserAdmin(admin.ModelAdmin):
     list_display = ["email", "full_name", "phone", "role", "person_type", "is_active", "date_joined"]
     list_filter = ["role", "person_type", "is_active"]
-    search_fields = ["email", "full_name", "iin", "bin"]
+    search_fields = ["email", "full_name", "iin", "bin", "organization_name"]
     ordering = ["-date_joined"]
 
 

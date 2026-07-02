@@ -23,7 +23,9 @@ import { registerContractor, registerCustomer } from "@/lib/api/auth";
 import { ApiError, type Role } from "@/lib/api/types";
 import { Link, useRouter } from "@/i18n/navigation";
 
-type FieldErrors = Partial<Record<"full_name" | "email" | "phone" | "password" | "iin" | "bin", string>>;
+type FieldErrors = Partial<
+  Record<"full_name" | "email" | "phone" | "password" | "iin" | "bin" | "organization_name" | "position", string>
+>;
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -37,6 +39,8 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [iin, setIin] = useState("");
   const [bin, setBin] = useState("");
+  const [organizationName, setOrganizationName] = useState("");
+  const [position, setPosition] = useState("");
 
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -53,6 +57,8 @@ export default function RegisterPage() {
       if (!/^\d{12}$/.test(iin)) errors.iin = "ИИН — 12 цифр.";
     } else {
       if (!/^\d{12}$/.test(bin)) errors.bin = "БИН — 12 цифр.";
+      if (!organizationName.trim()) errors.organization_name = "Укажите наименование организации.";
+      if (!position.trim()) errors.position = "Укажите должность.";
     }
     return errors;
   }
@@ -76,7 +82,9 @@ export default function RegisterPage() {
       person_type: personType,
       full_name: fullName,
       phone,
-      ...(personType === "individual" ? { iin } : { bin }),
+      ...(personType === "individual"
+        ? { iin }
+        : { bin, organization_name: organizationName, position }),
     };
 
     setIsSubmitting(true);
@@ -95,7 +103,16 @@ export default function RegisterPage() {
       }
     } catch (err) {
       if (err instanceof ApiError && err.fieldErrors) {
-        const knownFields = ["full_name", "email", "phone", "password", "iin", "bin"] as const;
+        const knownFields = [
+          "full_name",
+          "email",
+          "phone",
+          "password",
+          "iin",
+          "bin",
+          "organization_name",
+          "position",
+        ] as const;
         const mapped: FieldErrors = {};
         for (const key of knownFields) {
           const messages = err.fieldErrors[key];
@@ -219,15 +236,33 @@ export default function RegisterPage() {
                     />
                   </FormField>
                 ) : (
-                  <FormField id="reg-bin" label="БИН" required error={fieldErrors.bin}>
-                    <Input
-                      inputMode="numeric"
-                      maxLength={12}
-                      value={bin}
-                      onChange={(e) => setBin(e.target.value.replace(/\D/g, ""))}
-                      placeholder="123456789012"
-                    />
-                  </FormField>
+                  <>
+                    <FormField id="reg-organization-name" label="Наименование организации" required error={fieldErrors.organization_name}>
+                      <Input
+                        value={organizationName}
+                        onChange={(e) => setOrganizationName(e.target.value)}
+                        placeholder="ТОО «Компания»"
+                      />
+                    </FormField>
+
+                    <FormField id="reg-position" label="Должность" required error={fieldErrors.position}>
+                      <Input
+                        value={position}
+                        onChange={(e) => setPosition(e.target.value)}
+                        placeholder="Директор"
+                      />
+                    </FormField>
+
+                    <FormField id="reg-bin" label="БИН" required error={fieldErrors.bin}>
+                      <Input
+                        inputMode="numeric"
+                        maxLength={12}
+                        value={bin}
+                        onChange={(e) => setBin(e.target.value.replace(/\D/g, ""))}
+                        placeholder="123456789012"
+                      />
+                    </FormField>
+                  </>
                 )}
 
                 <Button type="submit" disabled={isSubmitting} style={{ height: 44, marginTop: 4 }}>

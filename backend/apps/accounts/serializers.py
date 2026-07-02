@@ -23,6 +23,8 @@ class BaseRegistrationSerializer(serializers.ModelSerializer):
             "phone",
             "iin",
             "bin",
+            "organization_name",
+            "position",
         ]
         read_only_fields = ["id"]
 
@@ -30,6 +32,8 @@ class BaseRegistrationSerializer(serializers.ModelSerializer):
         person_type = attrs.get("person_type")
         iin = attrs.get("iin", "")
         bin_ = attrs.get("bin", "")
+        organization_name = attrs.get("organization_name", "")
+        position = attrs.get("position", "")
         if person_type == PersonType.INDIVIDUAL and not iin:
             raise serializers.ValidationError({"iin": "Обязателен для физического лица."})
         if person_type == PersonType.LEGAL and not bin_:
@@ -38,6 +42,14 @@ class BaseRegistrationSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"bin": "Не заполняется для физического лица."})
         if person_type == PersonType.LEGAL and iin:
             raise serializers.ValidationError({"iin": "Не заполняется для юридического лица."})
+        if person_type == PersonType.LEGAL and not organization_name:
+            raise serializers.ValidationError({"organization_name": "Обязательно для юридического лица."})
+        if person_type == PersonType.LEGAL and not position:
+            raise serializers.ValidationError({"position": "Обязательна для юридического лица."})
+        if person_type == PersonType.INDIVIDUAL and organization_name:
+            raise serializers.ValidationError({"organization_name": "Не заполняется для физического лица."})
+        if person_type == PersonType.INDIVIDUAL and position:
+            raise serializers.ValidationError({"position": "Не заполняется для физического лица."})
         return attrs
 
 
