@@ -74,6 +74,18 @@
 ### 1.7. Базовая админка
 - [x] Управление пользователями, заявками, верификацией через Django Admin
   - accounts: UserAdmin (email/ФИО/телефон/роль/тип лица), ContractorProfileAdmin с list_editable verification_status и кликабельными ссылками на сканы (license_scan_link, attestation_scan_link)
+    - **(фикс 2026-07-02) Пароль в UserAdmin.** Кастомный `User` (email вместо username) регистрировался
+      через голый `admin.ModelAdmin` — поле `password` редактировалось как обычный текст и при
+      случайном сохранении писалось в БД без хеширования (сломан вход одному пользователю,
+      `bake@mail.ru`, при ручном редактировании через админку). Исправлено: `apps/accounts/forms.py`
+      (`UserChangeForm` с `ReadOnlyPasswordHashField`, `UserCreationForm` на базе `BaseUserCreationForm`
+      с `Meta.fields = ("email",)`) + `UserAdmin` теперь наследует `django.contrib.auth.admin.UserAdmin`
+      (даёт бесплатно ссылку «изменить пароль» на `/<id>/password/`, `AdminPasswordChangeForm` —
+      обе части не завязаны на встроенный `username`, только на `USERNAME_FIELD`). Проверено:
+      форма рендерит пароль как нередактируемый хеш (не `<input>`), `AdminPasswordChangeForm`
+      хеширует корректно (`pbkdf2_sha256...`, `check_password()` проходит). Попутно исправлен пароль
+      `bake@mail.ru`, который был сломан (см. выше) — временный пароль `NewSecurePass123`,
+      пользователю нужно сообщить и/или сменить через профиль.
   - sites: SiteAdmin с GISModelAdmin (карта), list_select_related, ordering
   - marketplace: RequestAdmin (date_hierarchy, list_select_related, site в колонке) + ResultFileInline; BidAdmin (фильтр по work_type, поиск по city/description)
   - Жалобы — модель появится в 2.1 (репутация), Admin добавить тогда же

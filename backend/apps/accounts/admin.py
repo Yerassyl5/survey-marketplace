@@ -1,17 +1,58 @@
 from __future__ import annotations
 
 from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.utils.html import format_html
 
+from .forms import UserChangeForm, UserCreationForm
 from .models import ContractorProfile, User
 
 
 @admin.register(User)
-class UserAdmin(admin.ModelAdmin):
+class UserAdmin(DjangoUserAdmin):
+    # Базовый DjangoUserAdmin уже умеет: хешировать пароль через ReadOnlyPasswordHashField,
+    # отдельную форму смены пароля (/<id>/password/), AdminPasswordChangeForm — всё это
+    # общее для любой модели с USERNAME_FIELD, не завязано на встроенный username.
+    form = UserChangeForm
+    add_form = UserCreationForm
+    model = User
+
     list_display = ["email", "full_name", "phone", "role", "person_type", "is_active", "date_joined"]
     list_filter = ["role", "person_type", "is_active"]
     search_fields = ["email", "full_name", "iin", "bin", "organization_name"]
     ordering = ["-date_joined"]
+    filter_horizontal = ["groups", "user_permissions"]
+    readonly_fields = ["date_joined"]
+
+    fieldsets = (
+        (None, {"fields": ("email", "password")}),
+        (
+            "Личные данные",
+            {
+                "fields": (
+                    "full_name",
+                    "phone",
+                    "role",
+                    "person_type",
+                    "iin",
+                    "bin",
+                    "organization_name",
+                    "position",
+                )
+            },
+        ),
+        ("Права доступа", {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
+        ("Важные даты", {"fields": ("last_login", "date_joined")}),
+    )
+    add_fieldsets = (
+        (
+            None,
+            {
+                "classes": ("wide",),
+                "fields": ("email", "password1", "password2", "role", "person_type", "full_name", "phone"),
+            },
+        ),
+    )
 
 
 @admin.register(ContractorProfile)
