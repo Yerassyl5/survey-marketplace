@@ -9,6 +9,7 @@
 
 import type { CSSProperties } from "react";
 
+import { Link, useRouter } from "@/i18n/navigation";
 import type { FeedRequest, WorkType } from "@/lib/api/marketplace";
 
 export const WORK_TYPE_LABELS: Record<WorkType, string> = {
@@ -36,7 +37,7 @@ export function WorkTypeBadge({ workType }: { workType: WorkType }) {
   return <span style={style}>{WORK_TYPE_LABELS[workType] ?? workType}</span>;
 }
 
-function formatDate(iso: string): string {
+export function formatDate(iso: string): string {
   return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", year: "numeric" }).format(
     new Date(iso),
   );
@@ -51,20 +52,15 @@ const cellStyle: CSSProperties = {
   verticalAlign: "middle",
 };
 
-export function RequestRow({
-  request,
-  index,
-  onRespond,
-}: {
-  request: FeedRequest;
-  index: number;
-  onRespond: (request: FeedRequest) => void;
-}) {
+export function RequestRow({ request, index }: { request: FeedRequest; index: number }) {
+  const router = useRouter();
   const customerLabel = request.customer.organization_name || request.customer.full_name;
+  const href = `/requests/${request.id}`;
 
   return (
     <tr
-      style={{ transition: "background 150ms" }}
+      onClick={() => router.push(href)}
+      style={{ transition: "background 150ms", cursor: "pointer" }}
       onMouseEnter={(e) => (e.currentTarget.style.background = "var(--ds-blue-xlight)")}
       onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
     >
@@ -79,8 +75,10 @@ export function RequestRow({
       </td>
       <td style={{ ...cellStyle, textAlign: "right" }}>
         {request.has_bid ? (
-          <span
-            title="Вы уже откликнулись на эту заявку"
+          <Link
+            href={href}
+            onClick={(e) => e.stopPropagation()}
+            title="Вы уже откликнулись — открыть заявку"
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -98,28 +96,27 @@ export function RequestRow({
               <polyline points="20 6 9 17 4 12" />
             </svg>
             Вы откликнулись
-          </span>
+          </Link>
         ) : (
-          <button
-            type="button"
-            onClick={() => onRespond(request)}
+          <Link
+            href={href}
+            onClick={(e) => e.stopPropagation()}
             style={{
+              display: "inline-flex",
               padding: "7px 16px",
               background: "var(--ds-blue)",
-              border: "none",
               borderRadius: "var(--ds-r-md)",
               fontSize: 13,
               fontWeight: 600,
               fontFamily: "var(--ds-font-body)",
               color: "#FFFFFF",
-              cursor: "pointer",
               transition: "background 150ms",
             }}
             onMouseEnter={(e) => (e.currentTarget.style.background = "var(--ds-blue-dark)")}
             onMouseLeave={(e) => (e.currentTarget.style.background = "var(--ds-blue)")}
           >
             Откликнуться
-          </button>
+          </Link>
         )}
       </td>
     </tr>

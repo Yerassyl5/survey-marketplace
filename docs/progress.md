@@ -241,8 +241,7 @@
 | 4 | Защита маршрутов (клиентский guard, не middleware) | `(app)/layout.tsx` | [x] |
 | 5 | Лента заявок → реальные данные из API | `/ru/feed` | [x] |
 | 6 | Создание заявки | `/ru/requests/new` | [ ] |
-| 7 | Отклик исполнителя (цена/срок/комментарий) | модалка на `/ru/feed`, не отдельный роут | [x] |
-| 7б | Отдельная карточка заявки (детальный просмотр) | `/ru/requests/[id]` | [ ] (не понадобилась для отклика — форма прямо из ленты; `RequestDetailView` на бэкенде уже есть) |
+| 7 | Карточка заявки (описание, ТЗ, карта MapLibre) + отклик исполнителя | `/ru/requests/[id]` | [x] (было: модалка на `/ru/feed` — не подошла по UX после ручной проверки, перенесено на отдельную страницу) |
 | 8 | Личный кабинет / мои отклики | `/ru/dashboard` | [ ] (сейчас — пустая заглушка только для проверки guard'а) |
 | 9 | Профиль + загрузка верификационных документов | `/ru/profile` | [ ] |
 
@@ -453,6 +452,78 @@
 и `npm run lint` фронтенда — 0 новых ошибок (те же 3 preexisting в `AppNav.tsx`).
 Ручная проверка в браузере (полный цикл модалки, инфо-алерт, повторный отклик
 блокируется) — за пользователем, инструкция дана в сессии.
+
+#### Модалка отклика заменена на страницу заявки (2026-07-03, тот же день)
+
+По итогам ручной проверки модалка не подошла по UX — пользователь запросил
+полноценную страницу `/ru/requests/[id]`: исполнитель изучает заявку целиком
+(описание, ТЗ, карта объекта) и оттуда же откликается. `Modal.tsx` и
+`BidModal.tsx` удалены целиком (проверено grep'ом — других импортов не было).
+
+**Backend:**
+- `RequestFeedDetailSerializer(RequestFeedSerializer)` — только для
+  `RequestDetailView`, не для ленты (список `/requests/` не раздуваем
+  геометрией, которая там не используется). Добавляет `site_geometry`
+  (`GeometryField(source="site.geometry")`) — **голая** GeoJSON-геометрия
+  (`{"type":"Point","coordinates":[...]}`), НЕ `Feature`: в отличие от
+  `sites.SiteSerializer` (`GeoFeatureModelSerializer`, оборачивает в
+  `{"type":"Feature","geometry":{...},"properties":{...}}`), тут нет
+  обёртки. `Request.geometry` (уточняющая геометрия заявки, опциональна)
+  уже был на `RequestFeedSerializer` — не дублировали, унаследовался.
+- `sites`-app и его permissions НЕ тронуты (`SiteDetailView` остаётся
+  `[IsCustomer]`) — геометрию исполнителю отдаёт `marketplace`, который
+  уже верно резолвит доступ (open-заявки + назначенные ему).
+- `tz_file` уже отдавался как рабочая presigned-ссылка MinIO
+  (`PublicURLS3Storage` — глобальный `STORAGES["default"]`) — backend-правка
+  не понадобилась, только ссылка «Скачать ТЗ» на фронте.
+- Тесты: `test_contractor_detail_includes_site_geometry` (проверяет ровно
+  `{type, coordinates}`, без `properties`), `test_feed_list_does_not_
+  include_site_geometry`. Итого 33/33.
+
+**Frontend:**
+- `maplibre-gl@^5.24.0` — первая карта во фронте. Тайлы — растровые OSM
+  (`tile.openstreetmap.org`), без внешних ключей; в коде оставлен
+  TODO-комментарий: OSM tile usage policy не разрешает продакшн-трафик,
+  при выходе на пользователей переключить на self-hosted/MapTiler —
+  сейчас не трогаем.
+- `components/ui/SiteMap.tsx` (новый, generic) — принимает голую
+  `geometry: GeoJSON.Geometry | null` (см. backend выше — важно не
+  перепутать с `Feature`, это главный источник бага «undefined на
+  карте»). Автовыбор слоя (точка → `circle`, полигон/линия → `fill`+
+  `line`), `fitBounds` по всем координатам геометрии. Устойчив к
+  двойному монтажу StrictMode в dev (флаг `cancelled` в замыкании
+  эффекта — `map.on('load', …)` не трогает уже удалённую через
+  `map.remove()` карту). Пока карта не загрузилась — оверлей «Карта
+  загружается…», без геометрии — плейсхолдер.
+- `components/marketplace/BidForm.tsx` (новый, из `BidModal.tsx` минус
+  `<dialog>`-обвязка) — та же форма/валидация/инфо-алерт про
+  верификацию, просто карточка в сайдбаре.
+- `lib/api/marketplace.ts` — `geometry` (был в JSON и раньше, просто не
+  был в TS-типе), `FeedRequestDetail` (+`site_geometry`),
+  `getRequestDetail()`.
+- `components/ui/RequestRow.tsx` — вместо колбэка `onRespond` (модалка) —
+  строка кликабельна целиком (`router.push`), бейдж/кнопка — настоящий
+  `Link` на `/requests/{id}` (и «Откликнуться», и «Вы откликнулись»).
+- `app/[locale]/(app)/requests/[id]/page.tsx` (новый) — `id` через
+  `useParams()` (не `useSearchParams()` — не требует `<Suspense>`).
+  Guard по роли на уровне страницы (contractor only), тот же паттерн,
+  что на `/feed`: заказчик, в т.ч. на своей заявке, редиректится на
+  `/dashboard` (полный обзор заявки заказчиком — следующая сессия).
+  Двухколоночный layout тем же flex-приёмом, что `FilterBar.tsx`
+  (`flexWrap: wrap` + `flex: "N 1 XXXpx"`, без media-query). Состояния:
+  свой skeleton (не ленточный), «Заявка не найдена» (нативный 404 от
+  `RequestDetailView`), ошибка+повтор (derived-loading через
+  `requestKey`, та же схема, что на `/feed` — не наступили второй раз
+  на `react-hooks/set-state-in-effect`), 401 → `/login`.
+- `feed/page.tsx` — состояние `respondingTo` и вся логика модалки убраны.
+
+**Проверено:** backend 33/33, live curl (bare geometry на detail,
+отсутствие `site_geometry` в списке ленты), `tsc --noEmit` и
+`npm run lint` фронтенда — 0 новых ошибок (те же 3 preexisting в
+`AppNav.tsx`, теперь просто дублируются в выводе — линтер обходит их
+с трёх разных точек входа страниц вместо двух, не новая проблема).
+Ручная проверка карты/формы отклика на реальной странице — за
+пользователем.
 
 ---
 

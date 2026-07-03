@@ -21,6 +21,10 @@ export interface FeedRequest {
   work_type: WorkType;
   description: string;
   tz_file: string | null;
+  /** Уточняющая геометрия ЗАЯВКИ (необязательна) — голая GeoJSON-геометрия
+   * (bare GeometryField на бэкенде), НЕ Feature. Обычно null — участок уже
+   * описан геометрией Site (см. FeedRequestDetail.site_geometry). */
+  geometry: GeoJSON.Geometry | null;
   location_type: LocationType;
   city: number | null;
   district: number | null;
@@ -30,6 +34,14 @@ export interface FeedRequest {
   has_bid: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/** Детали заявки — RequestFeedDetailSerializer (только GET одной заявки,
+ * не список). site_geometry — тоже голая GeoJSON-геометрия, не Feature:
+ * в отличие от sites.SiteSerializer (GeoFeatureModelSerializer), тут нет
+ * обёртки {type:"Feature", geometry:{...}, properties:{...}}. */
+export interface FeedRequestDetail extends FeedRequest {
+  site_geometry: GeoJSON.Geometry | null;
 }
 
 export interface PaginatedResponse<T> {
@@ -61,6 +73,10 @@ export async function getFeed(filters: FeedFilters = {}): Promise<FeedResponse> 
 
   const qs = params.toString();
   return apiFetch<FeedResponse>(`/marketplace/requests/${qs ? `?${qs}` : ""}`);
+}
+
+export async function getRequestDetail(id: number): Promise<FeedRequestDetail> {
+  return apiFetch<FeedRequestDetail>(`/marketplace/requests/${id}/`);
 }
 
 export interface ContractorBrief {

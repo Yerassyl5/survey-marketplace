@@ -1,9 +1,9 @@
 "use client";
 
 /* ────────────────────────────────────────────────────────────────────────
-   BidModal.tsx — форма отклика исполнителя (цена, срок, комментарий).
-   Открывается из строки ленты (RequestRow), закрывается по успеху/Esc/
-   клику по фону/крестику (все три — через Modal.tsx).
+   BidForm.tsx — форма отклика исполнителя (цена, срок, комментарий).
+   Карточка в сайдбаре страницы заявки (перенесено из BidModal.tsx —
+   модалка не подошла по UX, отклик теперь со страницы заявки).
    ──────────────────────────────────────────────────────────────────────── */
 
 import { useState } from "react";
@@ -13,24 +13,20 @@ import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/FormField";
 import { Input } from "@/components/ui/Input";
-import { Modal } from "@/components/ui/Modal";
-import { WorkTypeBadge } from "@/components/ui/RequestRow";
 import { Textarea } from "@/components/ui/Textarea";
 import { useRouter as useI18nRouter } from "@/i18n/navigation";
 import { AuthRequiredError } from "@/lib/api/client";
 import { createBid } from "@/lib/api/marketplace";
-import type { Bid, FeedRequest } from "@/lib/api/marketplace";
+import type { Bid } from "@/lib/api/marketplace";
 import { ApiError } from "@/lib/api/types";
 
-export interface BidModalProps {
-  open: boolean;
-  request: FeedRequest;
+export interface BidFormProps {
+  requestId: number;
   isVerified: boolean;
-  onClose: () => void;
   onSuccess: (bid: Bid) => void;
 }
 
-export function BidModal({ open, request, isVerified, onClose, onSuccess }: BidModalProps) {
+export function BidForm({ requestId, isVerified, onSuccess }: BidFormProps) {
   const i18nRouter = useI18nRouter();
 
   const [price, setPrice] = useState("");
@@ -53,16 +49,6 @@ export function BidModal({ open, request, isVerified, onClose, onSuccess }: BidM
       ? "Укажите срок в днях (целое число, больше нуля)."
       : fieldErrors?.deadline_days;
 
-  function resetAndClose() {
-    setPrice("");
-    setDeadlineDays("");
-    setComment("");
-    setTouched({});
-    setFormError(null);
-    setFieldErrors(null);
-    onClose();
-  }
-
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setFormError(null);
@@ -74,13 +60,12 @@ export function BidModal({ open, request, isVerified, onClose, onSuccess }: BidM
 
     setIsSubmitting(true);
     try {
-      const bid = await createBid(request.id, {
+      const bid = await createBid(requestId, {
         price: priceNumber.toFixed(2),
         deadline_days: deadlineNumber,
         comment: comment.trim() || undefined,
       });
       onSuccess(bid);
-      resetAndClose();
     } catch (err) {
       if (err instanceof AuthRequiredError) {
         i18nRouter.replace("/login");
@@ -104,13 +89,25 @@ export function BidModal({ open, request, isVerified, onClose, onSuccess }: BidM
   }
 
   return (
-    <Modal open={open} onClose={resetAndClose} title="Отклик на заявку">
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
-        <WorkTypeBadge workType={request.work_type} />
-        <span style={{ fontFamily: "var(--ds-font-body)", fontSize: 13, color: "var(--ds-text-sec)" }}>
-          {request.location_display}
-        </span>
-      </div>
+    <div
+      style={{
+        padding: 24,
+        background: "var(--ds-bg-white)",
+        border: "1px solid var(--ds-border)",
+        borderRadius: "var(--ds-r-lg)",
+      }}
+    >
+      <h2
+        style={{
+          fontFamily: "var(--ds-font-heading)",
+          fontSize: 18,
+          fontWeight: 700,
+          color: "var(--ds-text)",
+          margin: "0 0 16px",
+        }}
+      >
+        Отклик на заявку
+      </h2>
 
       {!isVerified && (
         <div style={{ marginBottom: 18 }}>
@@ -159,15 +156,10 @@ export function BidModal({ open, request, isVerified, onClose, onSuccess }: BidM
           />
         </FormField>
 
-        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
-          <Button type="button" variant="outline" onClick={resetAndClose} disabled={isSubmitting}>
-            Отмена
-          </Button>
-          <Button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? "Отправка…" : "Отправить отклик"}
-          </Button>
-        </div>
+        <Button type="submit" disabled={isSubmitting} style={{ marginTop: 4 }}>
+          {isSubmitting ? "Отправка…" : "Отправить отклик"}
+        </Button>
       </form>
-    </Modal>
+    </div>
   );
 }
