@@ -143,3 +143,21 @@ class RequestFeedSerializer(serializers.ModelSerializer):
 
     def get_has_bid(self, obj: Request) -> bool:
         return bool(getattr(obj, "has_bid", False))
+
+
+class RequestFeedDetailSerializer(RequestFeedSerializer):
+    """Только для RequestDetailView (карточка заявки, исполнитель) — не для
+    ленты: список не должен таскать геометрию объекта на 20 строк, она там
+    не используется. site_geometry — ГОЛАЯ GeoJSON-геометрия (bare
+    GeometryField, как и унаследованный geometry), НЕ Feature: в отличие от
+    sites.SiteSerializer (GeoFeatureModelSerializer), тут нет обёртки
+    {"type": "Feature", "geometry": {...}, "properties": {...}} — сразу
+    {"type": "Point", "coordinates": [...]}. Карточка объекта (sites) не
+    трогается и остаётся приватной для заказчика-владельца (IsCustomer) —
+    геометрию исполнителю отдаёт marketplace, который уже правильно решает,
+    что ему разрешено видеть (open-заявки + назначенные ему)."""
+    site_geometry = GeometryField(source="site.geometry", read_only=True)
+
+    class Meta(RequestFeedSerializer.Meta):
+        fields = RequestFeedSerializer.Meta.fields + ["site_geometry"]
+        read_only_fields = fields

@@ -191,6 +191,27 @@ class RequestLifecycleTest(TestCase):
         r = self.client_e.get(f"/api/marketplace/requests/{req.id}/")
         self.assertEqual(r.status_code, 404)
 
+    def test_contractor_detail_includes_site_geometry(self):
+        req = self._create_request()
+        r = self.client_e.get(f"/api/marketplace/requests/{req.id}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("site_geometry", r.data)
+        geom = r.data["site_geometry"]
+        # Голая GeoJSON-геометрия (bare GeometryField), НЕ Feature: только
+        # type/coordinates, без обёртки "properties" (в отличие от
+        # sites.SiteSerializer, который строит целый Feature).
+        self.assertEqual(set(geom.keys()), {"type", "coordinates"})
+        self.assertEqual(geom["type"], "Point")
+        self.assertNotIn("properties", geom)
+
+    def test_feed_list_does_not_include_site_geometry(self):
+        """site_geometry — только на детальной странице заявки, список ленты
+        им не раздувается (RequestFeedSerializer, не RequestFeedDetailSerializer)."""
+        self._create_request()
+        r = self.client_e.get("/api/marketplace/requests/")
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("site_geometry", r.data["results"][0])
+
     def test_awarded_request_disappears_from_contractor_feed(self):
         req = self._create_request()
         req.status = RequestStatus.AWARDED

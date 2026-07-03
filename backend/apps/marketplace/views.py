@@ -17,7 +17,7 @@ from common.events import publish
 
 from .events import DealCompleted, RequestAccepted, RequestAwarded, ResultReturned, ResultSubmitted
 from .models import Bid, BidStatus, Request, RequestStatus, ResultFile
-from .serializers import BidSerializer, RequestFeedSerializer, RequestSerializer
+from .serializers import BidSerializer, RequestFeedDetailSerializer, RequestFeedSerializer, RequestSerializer
 
 
 class IsCustomer(permissions.BasePermission):
@@ -129,15 +129,16 @@ class RequestListCreateView(generics.ListCreateAPIView):
 @extend_schema(tags=["marketplace"], summary="Детали заявки")
 class RequestDetailView(generics.RetrieveAPIView):
     """Детали заявки: заказчик (владелец, RequestSerializer) или исполнитель
-    (открытые + назначенные ему, RequestFeedSerializer — те же правила видимости
-    полей, что и в ленте)."""
+    (открытые + назначенные ему, RequestFeedDetailSerializer — те же правила
+    видимости полей, что и в ленте, плюс site_geometry для карты на странице
+    заявки — только здесь, не в списке ленты)."""
     permission_classes = [permissions.IsAuthenticated]
 
     def get_serializer_class(self):
         role = getattr(self.request.user, "role", None)
         if role == Role.CUSTOMER:
             return RequestSerializer
-        return RequestFeedSerializer
+        return RequestFeedDetailSerializer
 
     def get_queryset(self):
         user = self.request.user
