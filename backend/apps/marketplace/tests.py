@@ -1,9 +1,12 @@
 """Смок-тест полного цикла 1.4: заявка → отклик → выбор → сдача → принятие."""
 from __future__ import annotations
 
+from datetime import timedelta
+
 from django.contrib.gis.geos import Point
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.accounts.models import ContractorProfile, Role, User, VerificationStatus
@@ -139,6 +142,16 @@ class RequestLifecycleTest(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.data["count"], 1)
         self.assertEqual(len(r.data["results"]), 1)
+
+    def test_feed_today_count(self):
+        req_today = self._create_request()
+        req_old = self._create_request()
+        Request.objects.filter(pk=req_old.pk).update(created_at=timezone.now() - timedelta(days=2))
+        r = self.client_e.get("/api/marketplace/requests/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["count"], 2)
+        self.assertEqual(r.data["today_count"], 1)
+        self.assertIn(req_today.id, [item["id"] for item in r.data["results"]])
 
     def test_contractor_feed_hides_bids_count_shows_customer(self):
         """Исполнитель не должен видеть число откликов (защита от манипуляции ценами),

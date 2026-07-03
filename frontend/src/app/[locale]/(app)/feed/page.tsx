@@ -23,11 +23,11 @@ import { AuthRequiredError } from "@/lib/api/client";
 import { getLocations } from "@/lib/api/geo";
 import type { GeoLocations } from "@/lib/api/geo";
 import { getFeed } from "@/lib/api/marketplace";
-import type { FeedRequest, PaginatedResponse } from "@/lib/api/marketplace";
+import type { FeedResponse } from "@/lib/api/marketplace";
 import { ApiError } from "@/lib/api/types";
 
 const PAGE_SIZE = 20;
-const COLUMNS = ["Тип работ", "Локация", "Заказчик", "Дата", ""];
+const COLUMNS = ["№", "Тип работ", "Локация", "Заказчик", "Дата", ""];
 
 /* ── Табличная обёртка ─────────────────────────────────────────────────── */
 function TableShell({ children }: { children: ReactNode }) {
@@ -40,7 +40,7 @@ function TableShell({ children }: { children: ReactNode }) {
         background: "var(--ds-bg-white)",
       }}
     >
-      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 800 }}>
         <thead>
           <tr>
             {COLUMNS.map((c) => (
@@ -90,6 +90,7 @@ function SkeletonRows() {
     <>
       {Array.from({ length: 8 }).map((_, i) => (
         <tr key={i}>
+          <td style={td}><SkeletonBar width={18} /></td>
           <td style={td}><SkeletonBar width={90} /></td>
           <td style={td}><SkeletonBar width={140} /></td>
           <td style={td}><SkeletonBar width={160} /></td>
@@ -159,6 +160,45 @@ function EmptyState({ variant, onReset }: { variant: "no-data" | "no-results"; o
   );
 }
 
+/* ── Stat tile: крупная цифра + подпись (dataviz: label sentence case без
+   двоеточия, value — semibold, пропорциональные цифры, без цвета данных —
+   это просто счётчик, не статус) ─────────────────────────────────────── */
+function StatTile({ value, label }: { value: number; label: string }) {
+  return (
+    <div
+      style={{
+        minWidth: 160,
+        padding: "16px 20px",
+        background: "var(--ds-bg-white)",
+        border: "1px solid var(--ds-border)",
+        borderRadius: "var(--ds-r-lg)",
+      }}
+    >
+      <div
+        style={{
+          fontFamily: "var(--ds-font-heading)",
+          fontSize: 32,
+          fontWeight: 700,
+          color: "var(--ds-text)",
+          lineHeight: 1.1,
+        }}
+      >
+        {value.toLocaleString("ru-RU")}
+      </div>
+      <div
+        style={{
+          fontFamily: "var(--ds-font-body)",
+          fontSize: 13,
+          color: "var(--ds-text-sec)",
+          marginTop: 4,
+        }}
+      >
+        {label}
+      </div>
+    </div>
+  );
+}
+
 /* ── Контент (использует useSearchParams — под Suspense) ──────────────── */
 function FeedContent() {
   const { user } = useAuth();
@@ -201,7 +241,7 @@ function FeedContent() {
   const [retryNonce, setRetryNonce] = useState(0);
   const requestKey = `${workType}|${cityId}|${districtId}|${page}|${retryNonce}`;
   const [result, setResult] = useState<
-    | { key: string; status: "success"; data: PaginatedResponse<FeedRequest> }
+    | { key: string; status: "success"; data: FeedResponse }
     | { key: string; status: "error"; message: string }
     | null
   >(null);
@@ -290,9 +330,16 @@ function FeedContent() {
           Лента заявок
         </h1>
         <p style={{ fontFamily: "var(--ds-font-body)", fontSize: 14, color: "var(--ds-text-sec)", margin: 0 }}>
-          Открытые заявки заказчиков, доступные для отклика.
+          Изыскания по всему Казахстану — выбирайте подходящие заявки и откликайтесь.
         </p>
       </div>
+
+      {successData && (
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+          <StatTile value={successData.count} label="Заявок доступно" />
+          <StatTile value={successData.today_count} label="Новых сегодня" />
+        </div>
+      )}
 
       <FilterBar
         locations={locations}
@@ -332,8 +379,8 @@ function FeedContent() {
       ) : successData ? (
         <>
           <TableShell>
-            {successData.results.map((r) => (
-              <RequestRow key={r.id} request={r} />
+            {successData.results.map((r, i) => (
+              <RequestRow key={r.id} request={r} index={(page - 1) * PAGE_SIZE + i + 1} />
             ))}
           </TableShell>
           <Pagination currentPage={page} totalPages={totalPages} onPageChange={(p) => updateQuery({ page: p })} />

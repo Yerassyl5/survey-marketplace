@@ -37,6 +37,12 @@ export interface PaginatedResponse<T> {
   results: T[];
 }
 
+/** Ответ ленты — та же пагинация + today_count (заявки, созданные сегодня,
+ * посчитаны по тем же фильтрам, что и count; см. RequestPagination.get_paginated_response). */
+export interface FeedResponse extends PaginatedResponse<FeedRequest> {
+  today_count: number;
+}
+
 export interface FeedFilters {
   work_type?: string;
   city_id?: number;
@@ -44,7 +50,7 @@ export interface FeedFilters {
   page?: number;
 }
 
-export async function getFeed(filters: FeedFilters = {}): Promise<PaginatedResponse<FeedRequest>> {
+export async function getFeed(filters: FeedFilters = {}): Promise<FeedResponse> {
   const params = new URLSearchParams();
   if (filters.work_type) params.set("work_type", filters.work_type);
   if (filters.city_id != null) params.set("city_id", String(filters.city_id));
@@ -52,5 +58,5 @@ export async function getFeed(filters: FeedFilters = {}): Promise<PaginatedRespo
   if (filters.page && filters.page > 1) params.set("page", String(filters.page));
 
   const qs = params.toString();
-  return apiFetch<PaginatedResponse<FeedRequest>>(`/marketplace/requests/${qs ? `?${qs}` : ""}`);
+  return apiFetch<FeedResponse>(`/marketplace/requests/${qs ? `?${qs}` : ""}`);
 }

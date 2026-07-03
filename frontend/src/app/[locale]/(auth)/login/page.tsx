@@ -3,8 +3,9 @@
 /* ────────────────────────────────────────────────────────────────────────
    /ru/login — вход по email+паролю.
    POST /api/accounts/login/ через useAuth().login(), токены сохраняются
-   в lib/api/tokens.ts. Успех → редирект на "/" (замена на /feed, когда
-   появится лента заявок).
+   в lib/api/tokens.ts. Успех → редирект по роли: contractor → /feed,
+   customer → /dashboard (его кабинет; название/маршрут — открытый вопрос,
+   см. docs/progress.md).
    ──────────────────────────────────────────────────────────────────────── */
 
 import { useState } from "react";
@@ -48,8 +49,8 @@ export default function LoginPage() {
 
     setIsSubmitting(true);
     try {
-      await login(email, password, remember);
-      router.push("/");
+      const user = await login(email, password, remember);
+      router.push(user.role === "contractor" ? "/feed" : "/dashboard");
     } catch (err) {
       if (err instanceof ApiError) {
         setFormError(err.message);

@@ -51,7 +51,7 @@ const cellStyle: CSSProperties = {
   verticalAlign: "middle",
 };
 
-export function RequestRow({ request }: { request: FeedRequest }) {
+export function RequestRow({ request, index }: { request: FeedRequest; index: number }) {
   const customerLabel = request.customer.organization_name || request.customer.full_name;
 
   return (
@@ -60,6 +60,7 @@ export function RequestRow({ request }: { request: FeedRequest }) {
       onMouseEnter={(e) => (e.currentTarget.style.background = "var(--ds-blue-xlight)")}
       onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
     >
+      <td style={{ ...cellStyle, color: "var(--ds-text-muted)" }}>{index}</td>
       <td style={cellStyle}>
         <WorkTypeBadge workType={request.work_type} />
       </td>

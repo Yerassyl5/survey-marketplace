@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.conf import settings
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import serializers as rf_serializers
 from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
 from rest_framework import generics, permissions, status
@@ -54,6 +55,20 @@ class RequestPagination(PageNumberPagination):
     # Только лента заявок (шаг B) — остальные списки (отклики, мои отклики)
     # намеренно не пагинируются, объёмы там на порядки меньше.
     page_size = 20
+
+    def get_paginated_response(self, data):
+        # today_count — счётчик «новых сегодня» для шапки ленты, посчитан по
+        # тому же (уже отфильтрованному work_type/city_id/district_id) queryset,
+        # что и count, просто с доп. условием по дате — семантика фильтров одна.
+        today = timezone.localdate()
+        today_count = self.page.paginator.object_list.filter(created_at__date=today).count()
+        return Response({
+            "count": self.page.paginator.count,
+            "today_count": today_count,
+            "next": self.get_next_link(),
+            "previous": self.get_previous_link(),
+            "results": data,
+        })
 
 
 @extend_schema_view(
