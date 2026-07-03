@@ -160,41 +160,54 @@ function EmptyState({ variant, onReset }: { variant: "no-data" | "no-results"; o
   );
 }
 
-/* ── Stat tile: крупная цифра + подпись (dataviz: label sentence case без
-   двоеточия, value — semibold, пропорциональные цифры, без цвета данных —
-   это просто счётчик, не статус) ─────────────────────────────────────── */
-function StatTile({ value, label }: { value: number; label: string }) {
+/* ── Stat-tile ряд: число (акцентный синий) + двухстрочная подпись рядом,
+   разделены тонкой вертикальной линией внутри одной карточки. ─────────── */
+function StatItem({ value, lines }: { value: number; lines: [string, string] }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 24px" }}>
+      <span
+        style={{
+          fontFamily: "var(--ds-font-heading)",
+          fontSize: 28,
+          fontWeight: 700,
+          color: "var(--ds-blue)",
+          lineHeight: 1,
+        }}
+      >
+        {value.toLocaleString("ru-RU")}
+      </span>
+      <span
+        style={{
+          fontFamily: "var(--ds-font-body)",
+          fontSize: 12,
+          fontWeight: 600,
+          color: "var(--ds-text-sec)",
+          lineHeight: 1.3,
+        }}
+      >
+        {lines[0]}
+        <br />
+        {lines[1]}
+      </span>
+    </div>
+  );
+}
+
+function StatRow({ available, todayCount }: { available: number; todayCount: number }) {
   return (
     <div
       style={{
-        minWidth: 160,
-        padding: "16px 20px",
+        display: "flex",
+        alignItems: "stretch",
+        width: "fit-content",
         background: "var(--ds-bg-white)",
         border: "1px solid var(--ds-border)",
         borderRadius: "var(--ds-r-lg)",
       }}
     >
-      <div
-        style={{
-          fontFamily: "var(--ds-font-heading)",
-          fontSize: 32,
-          fontWeight: 700,
-          color: "var(--ds-text)",
-          lineHeight: 1.1,
-        }}
-      >
-        {value.toLocaleString("ru-RU")}
-      </div>
-      <div
-        style={{
-          fontFamily: "var(--ds-font-body)",
-          fontSize: 13,
-          color: "var(--ds-text-sec)",
-          marginTop: 4,
-        }}
-      >
-        {label}
-      </div>
+      <StatItem value={available} lines={["заявок", "доступно"]} />
+      <div style={{ width: 1, background: "var(--ds-border)" }} />
+      <StatItem value={todayCount} lines={["новых", "сегодня"]} />
     </div>
   );
 }
@@ -334,12 +347,7 @@ function FeedContent() {
         </p>
       </div>
 
-      {successData && (
-        <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-          <StatTile value={successData.count} label="Заявок доступно" />
-          <StatTile value={successData.today_count} label="Новых сегодня" />
-        </div>
-      )}
+      {successData && <StatRow available={successData.count} todayCount={successData.today_count} />}
 
       <FilterBar
         locations={locations}
