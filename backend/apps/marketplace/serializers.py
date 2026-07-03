@@ -124,15 +124,22 @@ class RequestFeedSerializer(serializers.ModelSerializer):
     customer = CustomerBriefSerializer(read_only=True)
     geometry = GeometryField(required=False, allow_null=True)
     location_display = serializers.SerializerMethodField()
+    # Аннотация Exists() из get_queryset() вьюхи (один SQL-запрос на всю
+    # страницу, не N+1) — SerializerMethodField с getattr-фолбэком, чтобы не
+    # падать, если сериализатор когда-нибудь используется на неаннотированном qs.
+    has_bid = serializers.SerializerMethodField()
 
     class Meta:
         model = Request
         fields = [
             "id", "site", "work_type", "description", "tz_file",
             "geometry", "location_type", "city", "district", "location_display",
-            "customer", "created_at", "updated_at",
+            "customer", "has_bid", "created_at", "updated_at",
         ]
         read_only_fields = fields
 
     def get_location_display(self, obj: Request) -> str:
         return obj.location_label
+
+    def get_has_bid(self, obj: Request) -> bool:
+        return bool(getattr(obj, "has_bid", False))

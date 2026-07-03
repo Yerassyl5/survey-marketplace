@@ -231,6 +231,20 @@ class RequestLifecycleTest(TestCase):
         self.client_e.post(f"/api/marketplace/requests/{req.id}/bids/", self._bid_payload(), format="json")
         r = self.client_e.post(f"/api/marketplace/requests/{req.id}/bids/", self._bid_payload(), format="json")
         self.assertIn(r.status_code, [400, 409])
+        # Регресс-тест: раньше ValidationError("...") сериализовался DRF в голый
+        # список ["..."] без ключа "detail" — фронтенд не мог вытащить сообщение.
+        self.assertIn("detail", r.data)
+        self.assertEqual(r.data["detail"], "Вы уже откликнулись на эту заявку.")
+
+    def test_feed_has_bid_flag(self):
+        req_with_bid = self._create_request()
+        req_without_bid = self._create_request()
+        Bid.objects.create(request=req_with_bid, contractor=self.contractor, price=100000, deadline_days=10)
+        r = self.client_e.get("/api/marketplace/requests/")
+        self.assertEqual(r.status_code, 200)
+        by_id = {item["id"]: item["has_bid"] for item in r.data["results"]}
+        self.assertTrue(by_id[req_with_bid.id])
+        self.assertFalse(by_id[req_without_bid.id])
 
     def test_customer_cannot_bid(self):
         req = self._create_request()

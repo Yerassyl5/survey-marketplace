@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from django.conf import settings
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import serializers as rf_serializers
@@ -108,7 +108,9 @@ class RequestListCreateView(generics.ListCreateAPIView):
         # Исполнитель видит только открытую ленту (инвариант: как только заявка
         # awarded, она пропадает из ленты — дальнейшие статусы видят только
         # заказчик и выбранный исполнитель).
-        qs = qs.filter(status=RequestStatus.OPEN)
+        qs = qs.filter(status=RequestStatus.OPEN).annotate(
+            has_bid=Exists(Bid.objects.filter(request=OuterRef("pk"), contractor=user))
+        )
         work_type = self.request.query_params.get("work_type")
         region_id = self.request.query_params.get("region_id")
         district_id = self.request.query_params.get("district_id")
@@ -142,7 +144,9 @@ class RequestDetailView(generics.RetrieveAPIView):
         qs = Request.objects.select_related(*REQUEST_SELECT_RELATED).prefetch_related("result_files")
         if user.role == Role.CUSTOMER:
             return qs.filter(customer=user)
-        return qs.filter(Q(status=RequestStatus.OPEN) | Q(assigned_contractor=user))
+        return qs.filter(Q(status=RequestStatus.OPEN) | Q(assigned_contractor=user)).annotate(
+            has_bid=Exists(Bid.objects.filter(request=OuterRef("pk"), contractor=user))
+        )
 
 
 @extend_schema_view(
@@ -175,7 +179,10 @@ class BidListCreateView(generics.ListCreateAPIView):
         )
         if Bid.objects.filter(request=request_obj, contractor=self.request.user).exists():
             from rest_framework.exceptions import ValidationError
-            raise ValidationError("Вы уже откликнулись на эту заявку.")
+            # Явный dict, не голая строка: ValidationError("...") сериализуется DRF
+            # в JSON-массив ["..."] без ключа "detail" — фронтенд (client.ts,
+            # extractErrorMessage) ждёт объект с .detail и не находит сообщение.
+            raise ValidationError({"detail": "Вы уже откликнулись на эту заявку."})
         serializer.save(request=request_obj, contractor=self.request.user)
 
 
