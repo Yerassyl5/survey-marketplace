@@ -14,7 +14,7 @@ import type { ReactNode } from "react";
 import { AppNav } from "@/components/ui/AppNav";
 import { AppFooter } from "@/components/ui/AppFooter";
 import { useAuth } from "@/contexts/AuthContext";
-import { useRouter } from "@/i18n/navigation";
+import { usePathname, useRouter } from "@/i18n/navigation";
 
 function Spinner() {
   return (
@@ -36,6 +36,8 @@ function Spinner() {
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { user, isLoading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  const activeLink = pathname.startsWith("/feed") ? "Лента заявок" : undefined;
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -61,7 +63,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "var(--ds-bg)" }}>
-      <AppNav variant="app" user={{ name: user.full_name, role: user.role }} />
+      <AppNav variant="app" activeLink={activeLink} user={{ name: user.full_name, role: user.role }} />
       <main style={{ flex: 1 }}>{children}</main>
       <AppFooter compact />
     </div>

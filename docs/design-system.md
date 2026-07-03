@@ -127,10 +127,8 @@ Z-index шкала:
 | `AppNav.tsx` | `AppNav` | Навигация. Props: `variant: "public"\|"app"`, `activeLink`, `user`, `links` |
 | `AppFooter.tsx` | `AppFooter` | Футер. Props: `compact?: boolean` (компактная версия для app-экранов) |
 | `Pagination.tsx` | `Pagination` | Пагинация. Props: `currentPage`, `totalPages`, `onPageChange` |
-
-**Готовятся (при первом рабочем экране):**
-- `FilterBar.tsx` — поиск + фильтры + чипы
-- `RequestRow.tsx` — строка таблицы заявок
+| `FilterBar.tsx` | `FilterBar` | Фильтры ленты: тип работ + каскадный фильтр локации (республиканский город / область → город\|район). Внутренний нестилизованный `Select` — аналог `Input.tsx` для `<select>` |
+| `RequestRow.tsx` | `RequestRow`, `WorkTypeBadge`, `WORK_TYPE_LABELS` | Строка таблицы заявок. `WorkTypeBadge` — нейтральный (не цветной): тип работ это категория, не состояние |
 
 ---
 
@@ -166,6 +164,7 @@ Z-index шкала:
 | URL | Назначение |
 |---|---|
 | `/ru/landing` | Публичная главная — лендинг в институциональном стиле |
+| `/ru/feed` | Лента открытых заявок для исполнителя (таблица, фильтры, пагинация) |
 
 ---
 
