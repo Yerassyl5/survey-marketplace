@@ -264,6 +264,13 @@ a {
   border-radius: var(--ds-r-sm);
 }
 
+/* Затемнение под модалками (Modal.tsx, нативный <dialog>) — навязчиво-нейтральный
+   навy тон в тон палитре, не голый rgba(0,0,0). React inline-стили не достают
+   до ::backdrop, поэтому глобально. */
+dialog::backdrop {
+  background: rgba(15, 23, 42, 0.55);
+}
+
 /* Спиннер загрузки (auth-guard приватных экранов и async-состояния форм) */
 @keyframes progeo-spin {
   to {

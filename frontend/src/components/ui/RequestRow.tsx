@@ -51,7 +51,15 @@ const cellStyle: CSSProperties = {
   verticalAlign: "middle",
 };
 
-export function RequestRow({ request, index }: { request: FeedRequest; index: number }) {
+export function RequestRow({
+  request,
+  index,
+  onRespond,
+}: {
+  request: FeedRequest;
+  index: number;
+  onRespond: (request: FeedRequest) => void;
+}) {
   const customerLabel = request.customer.organization_name || request.customer.full_name;
 
   return (
@@ -70,24 +78,49 @@ export function RequestRow({ request, index }: { request: FeedRequest; index: nu
         {formatDate(request.created_at)}
       </td>
       <td style={{ ...cellStyle, textAlign: "right" }}>
-        <button
-          type="button"
-          disabled
-          title="Отклик на заявку появится в следующей версии"
-          style={{
-            padding: "7px 16px",
-            background: "var(--ds-border)",
-            border: "none",
-            borderRadius: "var(--ds-r-md)",
-            fontSize: 13,
-            fontWeight: 600,
-            fontFamily: "var(--ds-font-body)",
-            color: "var(--ds-text-muted)",
-            cursor: "not-allowed",
-          }}
-        >
-          Откликнуться
-        </button>
+        {request.has_bid ? (
+          <span
+            title="Вы уже откликнулись на эту заявку"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "7px 16px",
+              background: "var(--ds-active-bg)",
+              borderRadius: "var(--ds-r-md)",
+              fontSize: 13,
+              fontWeight: 600,
+              fontFamily: "var(--ds-font-body)",
+              color: "var(--ds-active-text)",
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            Вы откликнулись
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onRespond(request)}
+            style={{
+              padding: "7px 16px",
+              background: "var(--ds-blue)",
+              border: "none",
+              borderRadius: "var(--ds-r-md)",
+              fontSize: 13,
+              fontWeight: 600,
+              fontFamily: "var(--ds-font-body)",
+              color: "#FFFFFF",
+              cursor: "pointer",
+              transition: "background 150ms",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = "var(--ds-blue-dark)")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "var(--ds-blue)")}
+          >
+            Откликнуться
+          </button>
+        )}
       </td>
     </tr>
   );

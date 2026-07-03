@@ -128,7 +128,10 @@ Z-index шкала:
 | `AppFooter.tsx` | `AppFooter` | Футер. Props: `compact?: boolean` (компактная версия для app-экранов) |
 | `Pagination.tsx` | `Pagination` | Пагинация. Props: `currentPage`, `totalPages`, `onPageChange` |
 | `FilterBar.tsx` | `FilterBar` | Фильтры ленты: тип работ + каскадный фильтр локации (республиканский город / область → город\|район). Внутренний нестилизованный `Select` — аналог `Input.tsx` для `<select>` |
-| `RequestRow.tsx` | `RequestRow`, `WorkTypeBadge`, `WORK_TYPE_LABELS` | Строка таблицы заявок. `WorkTypeBadge` — нейтральный (не цветной): тип работ это категория, не состояние |
+| `RequestRow.tsx` | `RequestRow`, `WorkTypeBadge`, `WORK_TYPE_LABELS` | Строка таблицы заявок. `WorkTypeBadge` — нейтральный (не цветной): тип работ это категория, не состояние. Кнопка «Откликнуться»/«Вы откликнулись» (по `request.has_bid`) |
+| `Modal.tsx` | `Modal` | Модалка на нативном `<dialog>` (focus trap/Esc/top-layer — от браузера, не самописные). Props: `open`, `onClose`, `title`, `children`. `::backdrop` — глобально в `globals.css` |
+| `Textarea.tsx` | `Textarea` | Многострочное поле, аналог `Input.tsx` |
+| `components/marketplace/BidModal.tsx` | `BidModal` | Форма отклика исполнителя (цена/срок/комментарий) поверх `Modal.tsx`. Не в `ui/` — привязан к домену marketplace, не переиспользуемый примитив |
 
 ---
 

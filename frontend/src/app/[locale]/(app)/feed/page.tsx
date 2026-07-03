@@ -12,6 +12,7 @@ import { Suspense, useEffect, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
+import { BidModal } from "@/components/marketplace/BidModal";
 import { FilterBar } from "@/components/ui/FilterBar";
 import type { FeedFilterValue } from "@/components/ui/FilterBar";
 import { Pagination } from "@/components/ui/Pagination";
@@ -23,7 +24,7 @@ import { AuthRequiredError } from "@/lib/api/client";
 import { getLocations } from "@/lib/api/geo";
 import type { GeoLocations } from "@/lib/api/geo";
 import { getFeed } from "@/lib/api/marketplace";
-import type { FeedResponse } from "@/lib/api/marketplace";
+import type { FeedRequest, FeedResponse } from "@/lib/api/marketplace";
 import { ApiError } from "@/lib/api/types";
 
 const PAGE_SIZE = 20;
@@ -310,6 +311,21 @@ function FeedContent() {
     updateQuery({ work_type: "", city_id: null, district_id: null, page: 1 });
   }
 
+  const [respondingTo, setRespondingTo] = useState<FeedRequest | null>(null);
+
+  function handleBidSuccess(requestId: number) {
+    setResult((prev) => {
+      if (!prev || prev.status !== "success") return prev;
+      return {
+        ...prev,
+        data: {
+          ...prev.data,
+          results: prev.data.results.map((r) => (r.id === requestId ? { ...r, has_bid: true } : r)),
+        },
+      };
+    });
+  }
+
   if (!user || !isContractor) {
     // Заказчик — идёт редирект в эффекте выше; здесь просто не мигаем контентом ленты.
     return null;
@@ -388,12 +404,27 @@ function FeedContent() {
         <>
           <TableShell>
             {successData.results.map((r, i) => (
-              <RequestRow key={r.id} request={r} index={(page - 1) * PAGE_SIZE + i + 1} />
+              <RequestRow
+                key={r.id}
+                request={r}
+                index={(page - 1) * PAGE_SIZE + i + 1}
+                onRespond={setRespondingTo}
+              />
             ))}
           </TableShell>
           <Pagination currentPage={page} totalPages={totalPages} onPageChange={(p) => updateQuery({ page: p })} />
         </>
       ) : null}
+
+      {respondingTo && (
+        <BidModal
+          open
+          request={respondingTo}
+          isVerified={user.verification_status === "verified"}
+          onClose={() => setRespondingTo(null)}
+          onSuccess={() => handleBidSuccess(respondingTo.id)}
+        />
+      )}
     </div>
   );
 }

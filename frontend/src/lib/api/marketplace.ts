@@ -26,6 +26,8 @@ export interface FeedRequest {
   district: number | null;
   location_display: string;
   customer: CustomerBrief;
+  /** Уже откликался ли текущий исполнитель на эту заявку (аннотация Exists() на бэкенде). */
+  has_bid: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -59,4 +61,33 @@ export async function getFeed(filters: FeedFilters = {}): Promise<FeedResponse> 
 
   const qs = params.toString();
   return apiFetch<FeedResponse>(`/marketplace/requests/${qs ? `?${qs}` : ""}`);
+}
+
+export interface ContractorBrief {
+  id: number;
+  full_name: string;
+  verification_status: string | null;
+}
+
+export interface BidPayload {
+  price: string;
+  deadline_days: number;
+  comment?: string;
+}
+
+export interface Bid {
+  id: number;
+  contractor: ContractorBrief;
+  comment: string;
+  price: string;
+  deadline_days: number;
+  status: "pending" | "selected" | "rejected";
+  created_at: string;
+}
+
+export async function createBid(requestId: number, payload: BidPayload): Promise<Bid> {
+  return apiFetch<Bid>(`/marketplace/requests/${requestId}/bids/`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
