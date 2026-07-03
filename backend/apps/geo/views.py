@@ -13,6 +13,8 @@ from apps.sites.models import Site
 from common.events import publish
 
 from .events import GeometryUploaded
+from .models import City, Region
+from .serializers import GeoCitySerializer, GeoRegionSerializer
 from .services import parse_geo_file
 
 
@@ -73,3 +75,26 @@ class SiteGeometryUploadView(APIView):
         publish(GeometryUploaded(site_id=site.id, file_format=fmt))
 
         return Response({"detail": "Геометрия обновлена.", "format": fmt}, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    tags=["geo"],
+    summary="Справочник КАТО (области, районы, города) одним деревом",
+    description=(
+        "Республиканские города (Астана/Алматы/Шымкент, без области-родителя) "
+        "отдельным списком + все области с вложенными городами и районами. "
+        "Датасет небольшой и почти статичный — фронтенд запрашивает один раз "
+        "и строит каскадный фильтр локации на клиенте, без запроса на каждый уровень."
+    ),
+    responses={200: OpenApiResponse(description="Дерево справочника локаций")},
+)
+class GeoLocationsView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request: Request) -> Response:
+        republican_cities = City.objects.filter(region__isnull=True).order_by("name")
+        regions = Region.objects.prefetch_related("cities", "districts").order_by("name")
+        return Response({
+            "republican_cities": GeoCitySerializer(republican_cities, many=True).data,
+            "regions": GeoRegionSerializer(regions, many=True).data,
+        })

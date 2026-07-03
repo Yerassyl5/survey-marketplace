@@ -6,6 +6,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework import serializers as rf_serializers
 from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
 from rest_framework import generics, permissions, status
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -49,6 +50,12 @@ REQUEST_SELECT_RELATED = (
 )
 
 
+class RequestPagination(PageNumberPagination):
+    # Только лента заявок (шаг B) — остальные списки (отклики, мои отклики)
+    # намеренно не пагинируются, объёмы там на порядки меньше.
+    page_size = 20
+
+
 @extend_schema_view(
     get=extend_schema(summary="Лента заявок (заказчику — свои, исполнителю — открытые)"),
     post=extend_schema(summary="Создание заявки заказчиком"),
@@ -61,6 +68,7 @@ class RequestListCreateView(generics.ListCreateAPIView):
     bids_count, зато с customer; фильтры: work_type, region_id/district_id/city_id).
     POST заказчик → создать заявку.
     """
+    pagination_class = RequestPagination
 
     def get_permissions(self):
         if self.request.method == "POST":
@@ -77,7 +85,9 @@ class RequestListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        qs = Request.objects.select_related(*REQUEST_SELECT_RELATED).prefetch_related("result_files")
+        qs = Request.objects.select_related(*REQUEST_SELECT_RELATED).prefetch_related(
+            "result_files"
+        ).order_by("-created_at")
         if user.role == Role.CUSTOMER:
             return qs.filter(customer=user)
         # Исполнитель видит только открытую ленту (инвариант: как только заявка

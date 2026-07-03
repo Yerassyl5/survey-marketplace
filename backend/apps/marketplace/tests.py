@@ -137,7 +137,8 @@ class RequestLifecycleTest(TestCase):
         self._create_request()
         r = self.client_e.get("/api/marketplace/requests/")
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(len(r.data), 1)
+        self.assertEqual(r.data["count"], 1)
+        self.assertEqual(len(r.data["results"]), 1)
 
     def test_contractor_feed_hides_bids_count_shows_customer(self):
         """Исполнитель не должен видеть число откликов (защита от манипуляции ценами),
@@ -146,10 +147,10 @@ class RequestLifecycleTest(TestCase):
         Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
         r = self.client_e.get("/api/marketplace/requests/")
         self.assertEqual(r.status_code, 200)
-        self.assertNotIn("bids_count", r.data[0])
-        self.assertIn("customer", r.data[0])
-        self.assertEqual(r.data[0]["customer"]["full_name"], "Заказчик Тест")
-        self.assertNotIn("status", r.data[0])
+        self.assertNotIn("bids_count", r.data["results"][0])
+        self.assertIn("customer", r.data["results"][0])
+        self.assertEqual(r.data["results"][0]["customer"]["full_name"], "Заказчик Тест")
+        self.assertNotIn("status", r.data["results"][0])
 
     def test_customer_own_requests_show_bids_count_not_customer(self):
         """Заказчик видит число откликов на СВОИ заявки; поле customer ему не нужно (это он сам)."""
@@ -157,8 +158,8 @@ class RequestLifecycleTest(TestCase):
         Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
         r = self.client_c.get("/api/marketplace/requests/")
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.data[0]["bids_count"], 1)
-        self.assertNotIn("customer", r.data[0])
+        self.assertEqual(r.data["results"][0]["bids_count"], 1)
+        self.assertNotIn("customer", r.data["results"][0])
 
     def test_customer_sees_own_requests_only(self):
         self._create_request()
@@ -167,7 +168,7 @@ class RequestLifecycleTest(TestCase):
         client2.force_authenticate(other_customer)
         r = client2.get("/api/marketplace/requests/")
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(len(r.data), 0)
+        self.assertEqual(r.data["count"], 0)
 
     def test_contractor_cannot_see_customers_request_detail_if_not_open(self):
         req = self._create_request()
@@ -183,7 +184,7 @@ class RequestLifecycleTest(TestCase):
         req.save()
         r = self.client_e.get("/api/marketplace/requests/")
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(len(r.data), 0)
+        self.assertEqual(r.data["count"], 0)
 
     # ------------------------------------------------------------------
     # Отклик (мягкий вариант — неверифицированный пропускается)
