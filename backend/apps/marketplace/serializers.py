@@ -91,6 +91,7 @@ class RequestSerializer(RequestLocationValidationMixin, serializers.ModelSeriali
         fields = [
             "id", "site", "work_type", "description", "tz_file",
             "geometry", "location_type", "city", "district", "location_display",
+            "contractor_note",
             "status", "assigned_contractor",
             "result_files", "result_note", "bids_count",
             "created_at", "updated_at",
@@ -134,6 +135,7 @@ class RequestFeedSerializer(serializers.ModelSerializer):
         fields = [
             "id", "site", "work_type", "description", "tz_file",
             "geometry", "location_type", "city", "district", "location_display",
+            "contractor_note",
             "customer", "has_bid", "created_at", "updated_at",
         ]
         read_only_fields = fields

@@ -74,6 +74,10 @@ class Request(models.Model):
     )
     # Текстовый комментарий к результату — заполняет исполнитель при сдаче; файлы — в ResultFile
     result_note = models.TextField(blank=True)
+    # Короткая пометка заказчика для потенциальных исполнителей (не второе описание,
+    # ограничена длиной) — сужает круг откликающихся: «срочно», «оплата наличными» и т.п.
+    # Заполняется через админку, пока нет формы создания заявки заказчиком на фронте.
+    contractor_note = models.CharField(max_length=300, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

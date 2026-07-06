@@ -29,6 +29,10 @@ export interface FeedRequest {
   city: number | null;
   district: number | null;
   location_display: string;
+  /** Короткая пометка заказчика для исполнителей (макс. 300 симв.), необязательна —
+   * «срочно, начать в течение 3 дней», «оплата только наличными» и т.п. Пустая строка,
+   * если заказчик её не заполнил. */
+  contractor_note: string;
   customer: CustomerBrief;
   /** Уже откликался ли текущий исполнитель на эту заявку (аннотация Exists() на бэкенде). */
   has_bid: boolean;

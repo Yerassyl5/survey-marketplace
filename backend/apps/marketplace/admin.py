@@ -12,10 +12,10 @@ class ResultFileInline(admin.TabularInline):
 
 @admin.register(Request)
 class RequestAdmin(admin.ModelAdmin):
-    list_display = ("id", "work_type", "location_column", "site", "status", "customer", "assigned_contractor", "created_at")
+    list_display = ("id", "work_type", "location_column", "site", "status", "customer", "assigned_contractor", "contractor_note_column", "created_at")
     list_filter = ("status", "work_type", "location_type")
     list_select_related = ["customer", "assigned_contractor", "site", "city", "city__region", "district", "district__region"]
-    search_fields = ("city__name", "district__name", "district__region__name", "description", "customer__email")
+    search_fields = ("city__name", "district__name", "district__region__name", "description", "customer__email", "contractor_note")
     readonly_fields = ("created_at", "updated_at")
     date_hierarchy = "created_at"
     inlines = [ResultFileInline]
@@ -23,6 +23,13 @@ class RequestAdmin(admin.ModelAdmin):
     @admin.display(description="Локация")
     def location_column(self, obj):
         return obj.location_label or "—"
+
+    @admin.display(description="Примечание для исполнителей")
+    def contractor_note_column(self, obj):
+        if not obj.contractor_note:
+            return "—"
+        note = obj.contractor_note
+        return note if len(note) <= 40 else f"{note[:40]}…"
 
 
 @admin.register(Bid)

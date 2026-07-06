@@ -43,6 +43,44 @@ export function formatDate(iso: string): string {
   );
 }
 
+const CONTRACTOR_NOTE_TRUNCATE_LENGTH = 45;
+
+function truncateNote(note: string): string {
+  return note.length <= CONTRACTOR_NOTE_TRUNCATE_LENGTH
+    ? note
+    : `${note.slice(0, CONTRACTOR_NOTE_TRUNCATE_LENGTH).trimEnd()}…`;
+}
+
+/** Примечание заказчика для исполнителей — видно сразу в ленте (не иконка/tooltip:
+ * решение — текст должен читаться без наведения, важно и на мобильном). Полный
+ * текст — на странице заявки; здесь обрезаем и даём title как подсказку с полным
+ * текстом, если он не поместился. */
+function ContractorNoteCell({ note }: { note: string }) {
+  if (!note) {
+    return <span style={{ color: "var(--ds-text-muted)" }}>—</span>;
+  }
+  return (
+    <span
+      title={note.length > CONTRACTOR_NOTE_TRUNCATE_LENGTH ? note : undefined}
+      style={{
+        display: "inline-block",
+        maxWidth: 220,
+        padding: "2px 8px",
+        borderRadius: "var(--ds-r-sm)",
+        background: "var(--ds-select-bg)",
+        color: "var(--ds-select-text)",
+        fontSize: 12,
+        fontWeight: 600,
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+      }}
+    >
+      {truncateNote(note)}
+    </span>
+  );
+}
+
 const cellStyle: CSSProperties = {
   padding: "14px 16px",
   fontFamily: "var(--ds-font-body)",
@@ -70,6 +108,9 @@ export function RequestRow({ request, index }: { request: FeedRequest; index: nu
       </td>
       <td style={cellStyle}>{request.location_display}</td>
       <td style={{ ...cellStyle, color: "var(--ds-text-sec)" }}>{customerLabel}</td>
+      <td style={cellStyle}>
+        <ContractorNoteCell note={request.contractor_note} />
+      </td>
       <td style={{ ...cellStyle, color: "var(--ds-text-sec)", whiteSpace: "nowrap" }}>
         {formatDate(request.created_at)}
       </td>

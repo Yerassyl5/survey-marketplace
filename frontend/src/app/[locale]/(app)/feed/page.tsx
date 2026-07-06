@@ -27,7 +27,7 @@ import type { FeedResponse } from "@/lib/api/marketplace";
 import { ApiError } from "@/lib/api/types";
 
 const PAGE_SIZE = 20;
-const COLUMNS = ["№", "Тип работ", "Локация", "Заказчик", "Дата", ""];
+const COLUMNS = ["№", "Тип работ", "Локация", "Заказчик", "Примечание", "Опубликовано", ""];
 
 /* ── Табличная обёртка ─────────────────────────────────────────────────── */
 function TableShell({ children }: { children: ReactNode }) {
@@ -94,6 +94,7 @@ function SkeletonRows() {
           <td style={td}><SkeletonBar width={90} /></td>
           <td style={td}><SkeletonBar width={140} /></td>
           <td style={td}><SkeletonBar width={160} /></td>
+          <td style={td}><SkeletonBar width={120} /></td>
           <td style={td}><SkeletonBar width={110} /></td>
           <td style={{ ...td, textAlign: "right" }}><SkeletonBar width={100} /></td>
         </tr>

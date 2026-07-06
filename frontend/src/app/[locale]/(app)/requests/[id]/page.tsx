@@ -241,6 +241,15 @@ function DetailContent({
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 24, alignItems: "flex-start" }}>
         <div style={{ flex: "2 1 480px", display: "flex", flexDirection: "column", gap: 24 }}>
+          {request.contractor_note && (
+            <Alert variant="warning">
+              <div>
+                <strong style={{ display: "block", marginBottom: 4 }}>Условия заказчика</strong>
+                {request.contractor_note}
+              </div>
+            </Alert>
+          )}
+
           <Card title="Описание">
             <p
               style={{

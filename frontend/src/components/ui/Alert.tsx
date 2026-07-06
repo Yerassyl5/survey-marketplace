@@ -9,13 +9,16 @@
 import type { CSSProperties, ReactNode } from "react";
 
 export interface AlertProps {
-  variant?: "error" | "info";
+  variant?: "error" | "info" | "warning";
   children: ReactNode;
 }
 
 const VARIANT_STYLE: Record<NonNullable<AlertProps["variant"]>, { bg: string; color: string; border: string }> = {
   error: { bg: "var(--ds-error-bg)", color: "var(--ds-error)", border: "var(--ds-error)" },
   info: { bg: "var(--ds-blue-xlight)", color: "var(--ds-blue)", border: "var(--ds-blue)" },
+  // Тот же амбер, что у статуса «Выбор исполнителя» (--ds-select-*) — семантика
+  // «требует внимания, не ошибка»: используется для примечания заказчика исполнителям.
+  warning: { bg: "var(--ds-select-bg)", color: "var(--ds-select-text)", border: "var(--ds-select-text)" },
 };
 
 export function Alert({ variant = "info", children }: AlertProps) {
