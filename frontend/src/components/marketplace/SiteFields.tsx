@@ -100,6 +100,27 @@ const mapLoadingStyle: CSSProperties = {
   fontSize: 13,
 };
 
+// FormField клонирует единственного ребёнка и добавляет id/aria-describedby/
+// hasError (см. FormField.tsx) — MapPointPicker и SiteMap оба принимают эти
+// пропы (или молча игнорируют лишние, как SiteMap). Голый <div> — DOM-узел,
+// не React-компонент: hasError на нём React не распознаёт и ругается в
+// консоли ("does not recognize the hasError prop on a DOM element"). Именованный
+// компонент явно берёт то, что реально нужно для a11y (id/aria-describedby —
+// для связки с <label htmlFor> и текстом подсказки), hasError не объявляет и
+// не подсвечивает: "идёт парсинг" — нейтральное ожидание, не состояние ошибки.
+interface MapLoadingPlaceholderProps {
+  id?: string;
+  "aria-describedby"?: string;
+}
+
+function MapLoadingPlaceholder({ id, "aria-describedby": describedBy }: MapLoadingPlaceholderProps) {
+  return (
+    <div id={id} aria-describedby={describedBy} style={mapLoadingStyle}>
+      Проверяем файл…
+    </div>
+  );
+}
+
 export function SiteFields({ value, onChange, errors }: SiteFieldsProps) {
   // onChange меняется на каждый рендер родителя, а эффект ниже реагирует
   // только на смену файла — держим актуальный value в ref (как onChangeRef в
@@ -162,7 +183,7 @@ export function SiteFields({ value, onChange, errors }: SiteFieldsProps) {
         }
       >
         {value.isParsingFile ? (
-          <div style={mapLoadingStyle}>Проверяем файл…</div>
+          <MapLoadingPlaceholder />
         ) : value.parsedFileGeometry ? (
           <SiteMap geometry={value.parsedFileGeometry} />
         ) : (
