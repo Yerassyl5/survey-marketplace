@@ -3,10 +3,12 @@ from __future__ import annotations
 from django.db import DataError
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 from rest_framework import permissions, status
+from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import MultiPartParser
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_gis.fields import GeometryField
 
 from apps.accounts.models import Role
 from apps.sites.models import Site
@@ -75,6 +77,54 @@ class SiteGeometryUploadView(APIView):
         publish(GeometryUploaded(site_id=site.id, file_format=fmt))
 
         return Response({"detail": "Геометрия обновлена.", "format": fmt}, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    tags=["geo"],
+    summary="Распарсить геометрию из файла (KML / GeoJSON), не сохраняя",
+    description=(
+        "Бесстейтовый эндпоинт: принимает .kml, .geojson или .json (≤ 10 МБ), "
+        "парсит геометрию через тот же geo/services.py::parse_geo_file(), что и "
+        "SiteGeometryUploadView (GDAL-репроекция в WGS84 по CRS файла + "
+        "bbox-валидация), но НИЧЕГО не пишет в БД — ни Site, ни что-либо ещё. "
+        "Нужен фронту, чтобы получить финальную геометрию ДО создания Site: "
+        "форма создания заявки (точка ИЛИ файл) парсит файл здесь заранее и "
+        "создаёт Site сразу с готовой геометрией — без временной точки-заглушки "
+        "и без второго запроса на дозапись геометрии."
+    ),
+    request={"multipart/form-data": {"type": "object", "properties": {"file": {"type": "string", "format": "binary"}}}},
+    responses={
+        200: OpenApiResponse(description="Геометрия распарсена"),
+        400: OpenApiResponse(description="Ошибка валидации файла"),
+        403: OpenApiResponse(description="Нет доступа"),
+    },
+)
+class GeometryParseView(APIView):
+    parser_classes = [MultiPartParser]
+    permission_classes = [permissions.IsAuthenticated, _IsCustomer]
+
+    def post(self, request: Request) -> Response:
+        file = request.FILES.get("file")
+        if not file:
+            return Response(
+                {"detail": "Поле 'file' обязательно."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # parse_geo_file поднимает голую ValidationError("текст") — DRF по
+        # умолчанию сериализует это в JSON-массив ["текст"], без ключа detail
+        # (известный анти-паттерн в этом проекте, см. BidListCreateView).
+        # Ловим явно, чтобы фронт получил читаемое {"detail": "..."}.
+        try:
+            geometry, fmt = parse_geo_file(file)
+        except ValidationError as exc:
+            message = exc.detail[0] if isinstance(exc.detail, list) else exc.detail
+            return Response({"detail": str(message)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(
+            {"geometry": GeometryField().to_representation(geometry), "format": fmt},
+            status=status.HTTP_200_OK,
+        )
 
 
 @extend_schema(

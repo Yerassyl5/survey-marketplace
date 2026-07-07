@@ -6,6 +6,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
 
 from apps.accounts.models import Role, User
+from apps.sites.models import Site
 
 from .models import City, District, Region
 from .services import parse_geo_file
@@ -122,6 +123,75 @@ class ParseGeoFileTests(SimpleTestCase):
         self.assertEqual(geom.srid, 4326)
         self.assertAlmostEqual(geom.x, 71.44, places=5)
         self.assertAlmostEqual(geom.y, 51.18, places=5)
+
+
+class GeometryParseViewTests(TestCase):
+    """POST /api/geo/parse-geometry/ — GeometryParseView: бесстейтовый парсинг
+    файла для формы создания заявки, чтобы получить финальную геометрию ДО
+    создания Site (устраняет временную точку-заглушку [71.4, 51.1] — см.
+    диагностическую сессию про orphan Site). Переиспользует parse_geo_file()
+    без изменений — фикстуры общие с ParseGeoFileTests выше."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="geo-parse-user@test.kz", password="pass", role=Role.CUSTOMER,
+            person_type="individual", full_name="Тест", phone="700",
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+
+    @staticmethod
+    def _upload(content: str, name: str) -> SimpleUploadedFile:
+        return SimpleUploadedFile(name, content.encode("utf-8"))
+
+    def test_valid_wgs84_geojson_returns_geometry(self):
+        r = self.client.post(
+            "/api/geo/parse-geometry/",
+            {"file": self._upload(GEOJSON_WGS84_NO_CRS, "site.geojson")},
+            format="multipart",
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["format"], "geojson")
+        self.assertEqual(r.data["geometry"]["type"], "Point")
+        self.assertEqual(tuple(r.data["geometry"]["coordinates"]), (71.44, 51.18))
+
+    def test_geojson_with_crs_returns_reprojected_geometry(self):
+        r = self.client.post(
+            "/api/geo/parse-geometry/",
+            {"file": self._upload(GEOJSON_UTM42N_LONG_CRS, "site.geojson")},
+            format="multipart",
+        )
+        self.assertEqual(r.status_code, 200)
+        ring = r.data["geometry"]["coordinates"][0]
+        lons = [c[0] for c in ring]
+        lats = [c[1] for c in ring]
+        self.assertTrue(all(-180 <= lon <= 180 for lon in lons))
+        self.assertTrue(all(-90 <= lat <= 90 for lat in lats))
+        self.assertAlmostEqual(min(lons), 71.446, places=2)
+        self.assertAlmostEqual(min(lats), 51.18, places=2)
+
+    def test_out_of_range_without_crs_rejected_with_readable_detail(self):
+        r = self.client.post(
+            "/api/geo/parse-geometry/",
+            {"file": self._upload(GEOJSON_NO_CRS_OUT_OF_RANGE, "site.geojson")},
+            format="multipart",
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(
+            r.data["detail"],
+            "Координаты вне допустимого диапазона широты/долготы — похоже, файл "
+            "экспортирован не в системе координат WGS84 (EPSG:4326). Проверьте CRS "
+            "при экспорте из QGIS.",
+        )
+
+    def test_does_not_create_any_site(self):
+        before = Site.objects.count()
+        self.client.post(
+            "/api/geo/parse-geometry/",
+            {"file": self._upload(GEOJSON_WGS84_NO_CRS, "site.geojson")},
+            format="multipart",
+        )
+        self.assertEqual(Site.objects.count(), before)
 
 
 class GeoLocationsViewTests(TestCase):
