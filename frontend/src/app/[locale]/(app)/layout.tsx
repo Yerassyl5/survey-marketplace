@@ -12,9 +12,26 @@ import { useEffect } from "react";
 import type { ReactNode } from "react";
 
 import { AppNav } from "@/components/ui/AppNav";
+import type { AppNavLink } from "@/components/ui/AppNav";
 import { AppFooter } from "@/components/ui/AppFooter";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePathname, useRouter } from "@/i18n/navigation";
+
+// Ссылки навигации по роли — заказчику и исполнителю показываем разное
+// (заказчик пока не видит «Лента заявок»: доступ к общей ленте для
+// заказчика — отдельный коммит, добавит сюда ссылку вместе со снятием
+// гварда на /feed).
+const NAV_LINKS: Record<"customer" | "contractor", AppNavLink[]> = {
+  customer: [
+    { label: "Мои заявки", href: "/ru/requests/my" },
+    { label: "Профиль", href: "#" },
+  ],
+  contractor: [
+    { label: "Лента заявок", href: "/ru/feed" },
+    { label: "Мои отклики", href: "#" },
+    { label: "Профиль", href: "#" },
+  ],
+};
 
 function Spinner() {
   return (
@@ -37,7 +54,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const { user, isLoading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-  const activeLink = pathname.startsWith("/feed") ? "Лента заявок" : undefined;
+  const activeLink = pathname.startsWith("/feed")
+    ? "Лента заявок"
+    : pathname.startsWith("/requests/my")
+      ? "Мои заявки"
+      : undefined;
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -63,7 +84,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "var(--ds-bg)" }}>
-      <AppNav variant="app" activeLink={activeLink} user={{ name: user.full_name, role: user.role }} />
+      <AppNav variant="app" activeLink={activeLink} user={{ name: user.full_name, role: user.role }} links={NAV_LINKS[user.role]} />
       <main style={{ flex: 1 }}>{children}</main>
       <AppFooter compact />
     </div>

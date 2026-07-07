@@ -3,9 +3,10 @@
 /* ────────────────────────────────────────────────────────────────────────
    /ru/feed — лента открытых заявок для исполнителя.
    Фильтры (work_type/city_id/district_id) и страница — в query-параметрах
-   URL (deep-linking). Заказчик редиректится на /dashboard: guard по роли
-   живёт здесь, а не в общем (app)/layout.tsx (тот проверяет только
-   «залогинен ли», используется и другими ролями).
+   URL (deep-linking). Заказчик пока редиректится на /requests/my (доступ
+   заказчика к общей ленте — отдельный коммит): guard по роли живёт здесь,
+   а не в общем (app)/layout.tsx (тот проверяет только «залогинен ли»,
+   используется и другими ролями).
    ──────────────────────────────────────────────────────────────────────── */
 
 import { Suspense, useEffect, useState } from "react";
@@ -225,7 +226,7 @@ function FeedContent() {
 
   useEffect(() => {
     if (user && user.role !== "contractor") {
-      i18nRouter.replace("/dashboard");
+      i18nRouter.replace("/requests/my");
     }
   }, [user, i18nRouter]);
 

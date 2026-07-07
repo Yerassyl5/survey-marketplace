@@ -124,6 +124,37 @@ export interface CreateRequestPayload {
   tz_file?: File | null;
 }
 
+/** Заявка в «Мои заявки» (заказчик, свои) — RequestSerializer: статус/bids_count,
+ * без customer (это он сам). */
+export interface MyRequest {
+  id: number;
+  site: number;
+  work_type: WorkType;
+  description: string;
+  tz_file: string | null;
+  location_type: LocationType;
+  city: number | null;
+  district: number | null;
+  location_display: string;
+  contractor_note: string;
+  status: "open" | "awarded" | "result_submitted" | "accepted";
+  assigned_contractor: number | null;
+  bids_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MyRequestsResponse extends PaginatedResponse<MyRequest> {
+  today_count: number;
+}
+
+export async function getMyRequests(page = 1): Promise<MyRequestsResponse> {
+  const params = new URLSearchParams();
+  if (page > 1) params.set("page", String(page));
+  const qs = params.toString();
+  return apiFetch<MyRequestsResponse>(`/marketplace/requests/${qs ? `?${qs}` : ""}`);
+}
+
 export async function createRequest(payload: CreateRequestPayload): Promise<{ id: number }> {
   const formData = new FormData();
   formData.append("site", String(payload.site));

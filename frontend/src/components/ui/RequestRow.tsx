@@ -10,7 +10,8 @@
 import type { CSSProperties } from "react";
 
 import { Link, useRouter } from "@/i18n/navigation";
-import type { FeedRequest, WorkType } from "@/lib/api/marketplace";
+import type { RequestStatus as StatusLabel } from "@/components/ui/Badge";
+import type { FeedRequest, MyRequest, WorkType } from "@/lib/api/marketplace";
 
 export const WORK_TYPE_LABELS: Record<WorkType, string> = {
   geodesy: "Геодезия",
@@ -18,6 +19,14 @@ export const WORK_TYPE_LABELS: Record<WorkType, string> = {
   geophysics: "Геофизика",
   ecology: "Экология",
   other: "Прочее",
+};
+
+/** marketplace.RequestStatus (backend) → метка StatusBadge. */
+export const STATUS_LABELS: Record<MyRequest["status"], StatusLabel> = {
+  open: "Новая",
+  awarded: "В работе",
+  result_submitted: "Результат сдан",
+  accepted: "Принята",
 };
 
 export function WorkTypeBadge({ workType }: { workType: WorkType }) {

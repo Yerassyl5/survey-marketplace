@@ -10,17 +10,21 @@ import type { CSSProperties } from "react";
 
 /* ── StatusBadge ────────────────────────────────────────────────────────── */
 
+// Метки соответствуют реальному жизненному циклу заявки (marketplace.RequestStatus:
+// open → awarded → result_submitted → accepted), а не изначальному эскизу дизайн-
+// системы («Выбор исполнителя» и т.п. — компонент был построен раньше вехи 1.4 и
+// до этого коммита нигде не использовался с реальными данными).
 export type RequestStatus =
   | "Новая"
-  | "Активна"
-  | "Выбор исполнителя"
-  | "Завершена";
+  | "В работе"
+  | "Результат сдан"
+  | "Принята";
 
 const STATUS_VARS: Record<RequestStatus, { bg: string; color: string }> = {
-  "Новая":             { bg: "var(--ds-new-bg)",    color: "var(--ds-new-text)"    },
-  "Активна":           { bg: "var(--ds-active-bg)", color: "var(--ds-active-text)" },
-  "Выбор исполнителя": { bg: "var(--ds-select-bg)", color: "var(--ds-select-text)" },
-  "Завершена":         { bg: "var(--ds-done-bg)",   color: "var(--ds-done-text)"   },
+  "Новая":          { bg: "var(--ds-new-bg)",    color: "var(--ds-new-text)"    },
+  "В работе":       { bg: "var(--ds-active-bg)", color: "var(--ds-active-text)" },
+  "Результат сдан": { bg: "var(--ds-select-bg)", color: "var(--ds-select-text)" },
+  "Принята":        { bg: "var(--ds-done-bg)",   color: "var(--ds-done-text)"   },
 };
 
 const BADGE_BASE: CSSProperties = {

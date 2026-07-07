@@ -38,12 +38,17 @@
 | `--ds-border-str` | `#CBD5E1` | Усиленные границы |
 
 ### Статусы заявок
-| Статус | Фон-токен | Текст-токен |
-|---|---|---|
-| Новая | `--ds-new-bg` `#EFF6FF` | `--ds-new-text` `#1D4ED8` |
-| Активна | `--ds-active-bg` `#F0FDF4` | `--ds-active-text` `#166534` |
-| Выбор исполнителя | `--ds-select-bg` `#FEF3C7` | `--ds-select-text` `#92400E` |
-| Завершена | `--ds-done-bg` `#F1F5F9` | `--ds-done-text` `#475569` |
+Метки соответствуют реальному жизненному циклу (`marketplace.RequestStatus`:
+open → awarded → result_submitted → accepted) — уточнено при подключении
+`StatusBadge` к реальным данным в «Мои заявки» (2026-07-07); исходный эскиз
+дизайн-системы использовал другие названия до этого коммита нигде не применялся.
+
+| Статус | Backend-статус | Фон-токен | Текст-токен |
+|---|---|---|---|
+| Новая | `open` | `--ds-new-bg` `#EFF6FF` | `--ds-new-text` `#1D4ED8` |
+| В работе | `awarded` | `--ds-active-bg` `#F0FDF4` | `--ds-active-text` `#166534` |
+| Результат сдан | `result_submitted` | `--ds-select-bg` `#FEF3C7` | `--ds-select-text` `#92400E` |
+| Принята | `accepted` | `--ds-done-bg` `#F1F5F9` | `--ds-done-text` `#475569` |
 
 ### Верификация
 | Состояние | Фон | Текст | Граница |
