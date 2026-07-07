@@ -111,3 +111,31 @@ export async function createBid(requestId: number, payload: BidPayload): Promise
     body: JSON.stringify(payload),
   });
 }
+
+/** Заявка заказчика (форма создания) — multipart из-за tz_file. */
+export interface CreateRequestPayload {
+  site: number;
+  work_type: WorkType;
+  description: string;
+  location_type: LocationType;
+  city_id?: number | null;
+  district_id?: number | null;
+  contractor_note?: string;
+  tz_file?: File | null;
+}
+
+export async function createRequest(payload: CreateRequestPayload): Promise<{ id: number }> {
+  const formData = new FormData();
+  formData.append("site", String(payload.site));
+  formData.append("work_type", payload.work_type);
+  formData.append("description", payload.description);
+  formData.append("location_type", payload.location_type);
+  if (payload.city_id != null) formData.append("city", String(payload.city_id));
+  if (payload.district_id != null) formData.append("district", String(payload.district_id));
+  if (payload.contractor_note) formData.append("contractor_note", payload.contractor_note);
+  if (payload.tz_file) formData.append("tz_file", payload.tz_file);
+  return apiFetch<{ id: number }>("/marketplace/requests/", {
+    method: "POST",
+    body: formData,
+  });
+}
