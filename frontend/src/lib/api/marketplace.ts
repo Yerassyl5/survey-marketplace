@@ -33,9 +33,14 @@ export interface FeedRequest {
    * «срочно, начать в течение 3 дней», «оплата только наличными» и т.п. Пустая строка,
    * если заказчик её не заполнил. */
   contractor_note: string;
-  customer: CustomerBrief;
-  /** Уже откликался ли текущий исполнитель на эту заявку (аннотация Exists() на бэкенде). */
-  has_bid: boolean;
+  /** null — заказчик листает общую ленту (?scope=feed) и смотрит ЧУЖУЮ заявку:
+   * бэкенд обезличивает customer (RequestFeedForCustomerSerializer). Свою
+   * заявку в той же ленте заказчик видит с customer заполненным. */
+  customer: CustomerBrief | null;
+  /** Уже откликался ли текущий исполнитель на эту заявку (аннотация Exists() на
+   * бэкенде) — только для роли contractor; для заказчика (?scope=feed) поле
+   * отсутствует в ответе вовсе (RequestFeedForCustomerSerializer его не отдаёт). */
+  has_bid?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -66,6 +71,9 @@ export interface FeedFilters {
   city_id?: number;
   district_id?: number;
   page?: number;
+  /** Заказчик передаёт "feed", чтобы получить общую открытую ленту вместо
+   * своих заявок (см. backend RequestListCreateView.get_queryset). */
+  scope?: "feed";
 }
 
 export async function getFeed(filters: FeedFilters = {}): Promise<FeedResponse> {
@@ -74,6 +82,7 @@ export async function getFeed(filters: FeedFilters = {}): Promise<FeedResponse> 
   if (filters.city_id != null) params.set("city_id", String(filters.city_id));
   if (filters.district_id != null) params.set("district_id", String(filters.district_id));
   if (filters.page && filters.page > 1) params.set("page", String(filters.page));
+  if (filters.scope) params.set("scope", filters.scope);
 
   const qs = params.toString();
   return apiFetch<FeedResponse>(`/marketplace/requests/${qs ? `?${qs}` : ""}`);

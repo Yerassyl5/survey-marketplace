@@ -1,14 +1,13 @@
 "use client";
 
 /* ────────────────────────────────────────────────────────────────────────
-   /ru/requests/[id] — карточка заявки для исполнителя: полное описание,
-   ТЗ, карта объекта (MapLibre), форма отклика. Заменяет прежнюю модалку
-   отклика с ленты (не подошла по UX) — отклик теперь только отсюда.
-   Guard по роли — здесь же, тем же паттерном, что на /feed (не в общем
-   (app)/layout.tsx): заказчик пока редиректится на /requests/my (доступ
-   заказчика к общей ленте, в т.ч. просмотр чужой заявки обезличенно —
-   отдельный коммит; полноценный обзор СВОЕЙ заявки заказчиком со списком
-   откликов и award — следующий блок).
+   /ru/requests/[id] — карточка заявки: описание, ТЗ, карта объекта
+   (MapLibre). Исполнитель видит форму отклика в сайдбаре; заказчик —
+   только просмотр (свою заявку — полностью, чужую — обезличенно, customer
+   === null от бэкенда), без сайдбара (отклик не для его роли; полноценный
+   обзор СВОЕЙ заявки заказчиком со списком откликов и award — следующий
+   блок). Guard по роли — здесь же, тем же паттерном, что на /feed (не в
+   общем (app)/layout.tsx): пускает и contractor, и customer.
    ──────────────────────────────────────────────────────────────────────── */
 
 import { useEffect, useState } from "react";
@@ -200,12 +199,17 @@ function DetailContent({
   request,
   isVerified,
   onBidSuccess,
+  showBidSidebar,
 }: {
   request: FeedRequestDetail;
   isVerified: boolean;
   onBidSuccess: () => void;
+  /** Сайдбар отклика — только для роли contractor; заказчик (свою или чужую
+   * заявку) видит только просмотр, без формы отклика. */
+  showBidSidebar: boolean;
 }) {
-  const customerLabel = request.customer.organization_name || request.customer.full_name;
+  // customer === null — обезличенная чужая заявка (заказчик листает общую ленту).
+  const customerLabel = request.customer ? request.customer.organization_name || request.customer.full_name : "Заказчик";
   // Уточняющая геометрия ЗАЯВКИ (необязательна) приоритетнее геометрии
   // объекта — так и задумано моделью (Request.geometry: "участок уже есть
   // на объекте (Site)", это поле только для уточнений).
@@ -301,13 +305,15 @@ function DetailContent({
           </Card>
         </div>
 
-        <div style={{ flex: "1 1 320px" }}>
-          {request.has_bid ? (
-            <RespondedBadge />
-          ) : (
-            <BidForm requestId={request.id} isVerified={isVerified} onSuccess={onBidSuccess} />
-          )}
-        </div>
+        {showBidSidebar && (
+          <div style={{ flex: "1 1 320px" }}>
+            {request.has_bid ? (
+              <RespondedBadge />
+            ) : (
+              <BidForm requestId={request.id} isVerified={isVerified} onSuccess={onBidSuccess} />
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -321,12 +327,14 @@ export default function RequestDetailPage() {
   const requestId = Number(params.id);
 
   const isContractor = user?.role === "contractor";
+  const isCustomer = user?.role === "customer";
+  const isAllowedRole = isContractor || isCustomer;
 
   useEffect(() => {
-    if (user && user.role !== "contractor") {
-      i18nRouter.replace("/requests/my");
+    if (user && !isAllowedRole) {
+      i18nRouter.replace("/login");
     }
-  }, [user, i18nRouter]);
+  }, [user, isAllowedRole, i18nRouter]);
 
   const [retryNonce, setRetryNonce] = useState(0);
   const requestKey = `${requestId}|${retryNonce}`;
@@ -336,10 +344,10 @@ export default function RequestDetailPage() {
     | { key: string; status: "error"; message: string }
     | null
   >(null);
-  const isLoading = isContractor && result?.key !== requestKey;
+  const isLoading = isAllowedRole && result?.key !== requestKey;
 
   useEffect(() => {
-    if (!isContractor) return;
+    if (!isAllowedRole) return;
     let cancelled = false;
     getRequestDetail(requestId)
       .then((data) => {
@@ -366,7 +374,7 @@ export default function RequestDetailPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- requestKey уже включает все зависимые значения
-  }, [isContractor, requestKey, i18nRouter]);
+  }, [isAllowedRole, requestKey, i18nRouter]);
 
   function handleBidSuccess() {
     setResult((prev) =>
@@ -374,7 +382,7 @@ export default function RequestDetailPage() {
     );
   }
 
-  if (!user || !isContractor) {
+  if (!user || !isAllowedRole) {
     return null;
   }
 
@@ -387,7 +395,12 @@ export default function RequestDetailPage() {
       ) : result?.status === "error" ? (
         <ErrorState message={result.message} onRetry={() => setRetryNonce((n) => n + 1)} />
       ) : result?.status === "success" ? (
-        <DetailContent request={result.data} isVerified={user.verification_status === "verified"} onBidSuccess={handleBidSuccess} />
+        <DetailContent
+          request={result.data}
+          isVerified={user.verification_status === "verified"}
+          onBidSuccess={handleBidSuccess}
+          showBidSidebar={isContractor}
+        />
       ) : null}
     </div>
   );

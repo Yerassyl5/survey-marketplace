@@ -17,13 +17,12 @@ import { AppFooter } from "@/components/ui/AppFooter";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePathname, useRouter } from "@/i18n/navigation";
 
-// Ссылки навигации по роли — заказчику и исполнителю показываем разное
-// (заказчик пока не видит «Лента заявок»: доступ к общей ленте для
-// заказчика — отдельный коммит, добавит сюда ссылку вместе со снятием
-// гварда на /feed).
+// Ссылки навигации по роли — дефолтный экран заказчика «Мои заявки», общую
+// ленту открывает по желанию (видит её обезличенно, откликаться не может).
 const NAV_LINKS: Record<"customer" | "contractor", AppNavLink[]> = {
   customer: [
     { label: "Мои заявки", href: "/ru/requests/my" },
+    { label: "Лента заявок", href: "/ru/feed" },
     { label: "Профиль", href: "#" },
   ],
   contractor: [

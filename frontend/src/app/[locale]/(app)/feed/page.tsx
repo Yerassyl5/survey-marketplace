@@ -3,9 +3,10 @@
 /* ────────────────────────────────────────────────────────────────────────
    /ru/feed — лента открытых заявок для исполнителя.
    Фильтры (work_type/city_id/district_id) и страница — в query-параметрах
-   URL (deep-linking). Заказчик пока редиректится на /requests/my (доступ
-   заказчика к общей ленте — отдельный коммит): guard по роли живёт здесь,
-   а не в общем (app)/layout.tsx (тот проверяет только «залогинен ли»,
+   URL (deep-linking). Заказчик тоже видит ленту (?scope=feed — общая
+   открытая лента, обезличенная для чужих заявок), но не откликается —
+   колонка действия скрыта (canRespond). Guard по роли живёт здесь, а не
+   в общем (app)/layout.tsx (тот проверяет только «залогинен ли»,
    используется и другими ролями).
    ──────────────────────────────────────────────────────────────────────── */
 
@@ -223,12 +224,14 @@ function FeedContent() {
   const searchParams = useSearchParams();
 
   const isContractor = user?.role === "contractor";
+  const isCustomer = user?.role === "customer";
+  const canView = isContractor || isCustomer;
 
   useEffect(() => {
-    if (user && user.role !== "contractor") {
-      i18nRouter.replace("/requests/my");
+    if (user && !canView) {
+      i18nRouter.replace("/login");
     }
-  }, [user, i18nRouter]);
+  }, [user, canView, i18nRouter]);
 
   const workType = searchParams.get("work_type") ?? "";
   const cityIdParam = searchParams.get("city_id");
@@ -260,16 +263,17 @@ function FeedContent() {
     | { key: string; status: "error"; message: string }
     | null
   >(null);
-  const isLoading = isContractor && result?.key !== requestKey;
+  const isLoading = canView && result?.key !== requestKey;
 
   useEffect(() => {
-    if (!isContractor) return;
+    if (!canView) return;
     let cancelled = false;
     getFeed({
       work_type: workType || undefined,
       city_id: cityId ?? undefined,
       district_id: districtId ?? undefined,
       page,
+      scope: isCustomer ? "feed" : undefined,
     })
       .then((res) => {
         if (cancelled) return;
@@ -291,7 +295,7 @@ function FeedContent() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- requestKey уже включает все зависимые значения
-  }, [isContractor, requestKey, i18nRouter]);
+  }, [canView, isCustomer, requestKey, i18nRouter]);
 
   function updateQuery(patch: Partial<{ work_type: string; city_id: number | null; district_id: number | null; page: number }>) {
     const next = { work_type: workType, city_id: cityId, district_id: districtId, page, ...patch };
@@ -312,8 +316,7 @@ function FeedContent() {
     updateQuery({ work_type: "", city_id: null, district_id: null, page: 1 });
   }
 
-  if (!user || !isContractor) {
-    // Заказчик — идёт редирект в эффекте выше; здесь просто не мигаем контентом ленты.
+  if (!user || !canView) {
     return null;
   }
 
@@ -345,7 +348,9 @@ function FeedContent() {
           Лента заявок
         </h1>
         <p style={{ fontFamily: "var(--ds-font-body)", fontSize: 14, color: "var(--ds-text-sec)", margin: 0 }}>
-          Изыскания по всему Казахстану — выбирайте подходящие заявки и откликайтесь.
+          {isCustomer
+            ? "Изыскания по всему Казахстану — посмотрите, какие заявки публикуют другие заказчики."
+            : "Изыскания по всему Казахстану — выбирайте подходящие заявки и откликайтесь."}
         </p>
       </div>
 
@@ -390,7 +395,7 @@ function FeedContent() {
         <>
           <TableShell>
             {successData.results.map((r, i) => (
-              <RequestRow key={r.id} request={r} index={(page - 1) * PAGE_SIZE + i + 1} />
+              <RequestRow key={r.id} request={r} index={(page - 1) * PAGE_SIZE + i + 1} canRespond={isContractor} />
             ))}
           </TableShell>
           <Pagination currentPage={page} totalPages={totalPages} onPageChange={(p) => updateQuery({ page: p })} />

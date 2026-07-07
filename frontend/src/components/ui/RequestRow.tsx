@@ -99,9 +99,18 @@ const cellStyle: CSSProperties = {
   verticalAlign: "middle",
 };
 
-export function RequestRow({ request, index }: { request: FeedRequest; index: number }) {
+export interface RequestRowProps {
+  request: FeedRequest;
+  index: number;
+  /** false — заказчик листает ленту: колонка отклика не показывается (заказчик
+   * не откликается). По умолчанию true (исполнитель). */
+  canRespond?: boolean;
+}
+
+export function RequestRow({ request, index, canRespond = true }: RequestRowProps) {
   const router = useRouter();
-  const customerLabel = request.customer.organization_name || request.customer.full_name;
+  // customer === null — обезличенная чужая заявка в общей ленте заказчика.
+  const customerLabel = request.customer ? request.customer.organization_name || request.customer.full_name : "Заказчик";
   const href = `/requests/${request.id}`;
 
   return (
@@ -124,7 +133,26 @@ export function RequestRow({ request, index }: { request: FeedRequest; index: nu
         {formatDate(request.created_at)}
       </td>
       <td style={{ ...cellStyle, textAlign: "right" }}>
-        {request.has_bid ? (
+        {!canRespond ? (
+          <Link
+            href={href}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: 13,
+              fontWeight: 600,
+              fontFamily: "var(--ds-font-body)",
+              color: "var(--ds-blue)",
+            }}
+          >
+            Открыть
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </Link>
+        ) : request.has_bid ? (
           <Link
             href={href}
             onClick={(e) => e.stopPropagation()}
