@@ -105,6 +105,15 @@ class RequestSerializer(RequestLocationValidationMixin, serializers.ModelSeriali
     def get_location_display(self, obj: Request) -> str:
         return obj.location_label
 
+    def validate_site(self, site):
+        # Заказчик мог подставить чужой site_id (объект не привязан к текущему
+        # владельцу) — раньше это было некому эксплуатировать (формы создания
+        # не было, только API/админка), но раз появляется форма — закрываем дыру.
+        request = self.context["request"]
+        if site.owner_id != request.user.id:
+            raise serializers.ValidationError("Объект не найден.")
+        return site
+
     def create(self, validated_data):
         validated_data["customer"] = self.context["request"].user
         request_obj = super().create(validated_data)
@@ -162,4 +171,35 @@ class RequestFeedDetailSerializer(RequestFeedSerializer):
 
     class Meta(RequestFeedSerializer.Meta):
         fields = RequestFeedSerializer.Meta.fields + ["site_geometry"]
+        read_only_fields = fields
+
+
+class RequestFeedForCustomerSerializer(RequestFeedSerializer):
+    """Для ЗАКАЗЧИКА, просматривающего общую ленту (`?scope=feed`) — та же
+    открытая лента, что видит исполнитель, НО: (1) `has_bid` не отдаётся —
+    заказчик не откликается, поле ему не релевантно; (2) `customer` чужих
+    заявок обезличивается («Заказчик» без имени/организации) — заказчики не
+    должны видеть активность друг друга по именам, только своё видно полностью.
+    Обезличивание — по инстансу (свой/чужой), поэтому через to_representation,
+    не через поле класса (CustomerBriefSerializer не знает, кто сейчас смотрит)."""
+
+    class Meta(RequestFeedSerializer.Meta):
+        fields = [f for f in RequestFeedSerializer.Meta.fields if f != "has_bid"]
+        read_only_fields = fields
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        viewer = self.context["request"].user
+        if instance.customer_id != viewer.id:
+            data["customer"] = {"id": None, "full_name": "Заказчик", "organization_name": ""}
+        return data
+
+
+class RequestFeedForCustomerDetailSerializer(RequestFeedForCustomerSerializer):
+    """То же обезличивание + site_geometry — заказчик, открывший ЧУЖУЮ открытую
+    заявку из общей ленты (RequestDetailView), тоже видит карту объекта."""
+    site_geometry = GeometryField(source="site.geometry", read_only=True)
+
+    class Meta(RequestFeedForCustomerSerializer.Meta):
+        fields = RequestFeedForCustomerSerializer.Meta.fields + ["site_geometry"]
         read_only_fields = fields

@@ -17,7 +17,14 @@ from common.events import publish
 
 from .events import DealCompleted, RequestAccepted, RequestAwarded, ResultReturned, ResultSubmitted
 from .models import Bid, BidStatus, Request, RequestStatus, ResultFile
-from .serializers import BidSerializer, RequestFeedDetailSerializer, RequestFeedSerializer, RequestSerializer
+from .serializers import (
+    BidSerializer,
+    RequestFeedDetailSerializer,
+    RequestFeedForCustomerDetailSerializer,
+    RequestFeedForCustomerSerializer,
+    RequestFeedSerializer,
+    RequestSerializer,
+)
 
 
 class IsCustomer(permissions.BasePermission):
@@ -78,7 +85,11 @@ class RequestPagination(PageNumberPagination):
 @extend_schema(tags=["marketplace"])
 class RequestListCreateView(generics.ListCreateAPIView):
     """
-    GET заказчик  → свои заявки (RequestSerializer, с bids_count).
+    GET заказчик, без параметра → свои заявки (RequestSerializer, с bids_count) —
+    это «Мои заявки».
+    GET заказчик, `?scope=feed` → та же открытая лента, что видит исполнитель,
+    но обезличенная для чужих заявок (RequestFeedForCustomerSerializer) —
+    заказчик листает общий рынок, не откликается.
     GET исполнитель → лента открытых заявок (RequestFeedSerializer — без
     bids_count, зато с customer; фильтры: work_type, region_id/district_id/city_id).
     POST заказчик → создать заявку.
@@ -90,11 +101,18 @@ class RequestListCreateView(generics.ListCreateAPIView):
             return [IsCustomer()]
         return [permissions.IsAuthenticated()]
 
+    def _is_customer_feed_scope(self) -> bool:
+        return self.request.query_params.get("scope") == "feed"
+
     def get_serializer_class(self):
         # getattr, не user.role напрямую: drf-spectacular интроспектирует схему
         # с AnonymousUser (нет атрибута role), permission_classes тут не спасают.
         role = getattr(self.request.user, "role", None)
-        if self.request.method == "POST" or role == Role.CUSTOMER:
+        if self.request.method == "POST":
+            return RequestSerializer
+        if role == Role.CUSTOMER:
+            if self._is_customer_feed_scope():
+                return RequestFeedForCustomerSerializer
             return RequestSerializer
         return RequestFeedSerializer
 
@@ -103,14 +121,16 @@ class RequestListCreateView(generics.ListCreateAPIView):
         qs = Request.objects.select_related(*REQUEST_SELECT_RELATED).prefetch_related(
             "result_files"
         ).order_by("-created_at")
-        if user.role == Role.CUSTOMER:
+        if user.role == Role.CUSTOMER and not self._is_customer_feed_scope():
             return qs.filter(customer=user)
-        # Исполнитель видит только открытую ленту (инвариант: как только заявка
-        # awarded, она пропадает из ленты — дальнейшие статусы видят только
-        # заказчик и выбранный исполнитель).
-        qs = qs.filter(status=RequestStatus.OPEN).annotate(
-            has_bid=Exists(Bid.objects.filter(request=OuterRef("pk"), contractor=user))
-        )
+        # Открытая лента: исполнитель (как всегда) и заказчик с ?scope=feed
+        # (инвариант: как только заявка awarded, она пропадает из ленты —
+        # дальнейшие статусы видят только заказчик и выбранный исполнитель).
+        qs = qs.filter(status=RequestStatus.OPEN)
+        if user.role == Role.CONTRACTOR:
+            qs = qs.annotate(
+                has_bid=Exists(Bid.objects.filter(request=OuterRef("pk"), contractor=user))
+            )
         work_type = self.request.query_params.get("work_type")
         region_id = self.request.query_params.get("region_id")
         district_id = self.request.query_params.get("district_id")
@@ -128,7 +148,9 @@ class RequestListCreateView(generics.ListCreateAPIView):
 
 @extend_schema(tags=["marketplace"], summary="Детали заявки")
 class RequestDetailView(generics.RetrieveAPIView):
-    """Детали заявки: заказчик (владелец, RequestSerializer) или исполнитель
+    """Детали заявки: заказчик-владелец (RequestSerializer, полная информация),
+    заказчик, открывший ЧУЖУЮ открытую заявку из общей ленты
+    (RequestFeedForCustomerDetailSerializer — обезличенно), или исполнитель
     (открытые + назначенные ему, RequestFeedDetailSerializer — те же правила
     видимости полей, что и в ленте, плюс site_geometry для карты на странице
     заявки — только здесь, не в списке ленты)."""
@@ -140,11 +162,26 @@ class RequestDetailView(generics.RetrieveAPIView):
             return RequestSerializer
         return RequestFeedDetailSerializer
 
+    def get_serializer(self, instance=None, *args, **kwargs):
+        # RequestSerializer (по умолчанию для роли customer выше) рассчитан
+        # только на «свои» заявки — если это чужая (заказчик открыл её из
+        # общей ленты), подменяем на обезличенный вариант. Нужен инстанс,
+        # поэтому здесь, а не в get_serializer_class().
+        if (
+            instance is not None
+            and getattr(self.request.user, "role", None) == Role.CUSTOMER
+            and instance.customer_id != self.request.user.id
+        ):
+            return RequestFeedForCustomerDetailSerializer(instance, context=self.get_serializer_context())
+        return super().get_serializer(instance, *args, **kwargs)
+
     def get_queryset(self):
         user = self.request.user
         qs = Request.objects.select_related(*REQUEST_SELECT_RELATED).prefetch_related("result_files")
         if user.role == Role.CUSTOMER:
-            return qs.filter(customer=user)
+            # Свои — в любом статусе; чужие — только открытые (та же общая
+            # лента, что и на /feed?scope=feed).
+            return qs.filter(Q(customer=user) | Q(status=RequestStatus.OPEN))
         return qs.filter(Q(status=RequestStatus.OPEN) | Q(assigned_contractor=user)).annotate(
             has_bid=Exists(Bid.objects.filter(request=OuterRef("pk"), contractor=user))
         )

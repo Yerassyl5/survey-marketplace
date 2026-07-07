@@ -125,6 +125,17 @@ class RequestLifecycleTest(TestCase):
         }, format="json")
         self.assertEqual(r.status_code, 401)
 
+    def test_customer_cannot_create_request_with_foreign_site(self):
+        """Заказчик не может подставить чужой site_id — Site.owner проверяется."""
+        other_customer = make_customer("other-owner@test.kz")
+        foreign_site = make_site(other_customer)
+        r = self.client_c.post("/api/marketplace/requests/", {
+            "site": foreign_site.id, "work_type": "geodesy",
+            "description": "x", "location_type": "city", "city": self.city.id,
+        }, format="json")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("site", r.data)
+
     # ------------------------------------------------------------------
     # Лента и доступ к заявке
     # ------------------------------------------------------------------
@@ -219,6 +230,91 @@ class RequestLifecycleTest(TestCase):
         r = self.client_e.get("/api/marketplace/requests/")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.data["count"], 0)
+
+    # ------------------------------------------------------------------
+    # Заказчик: общая лента (?scope=feed) — обезличенная для чужих заявок
+    # ------------------------------------------------------------------
+    def test_customer_default_scope_still_own_only(self):
+        """Без ?scope=feed поведение для заказчика не меняется — это «Мои заявки»."""
+        self._create_request()
+        other_customer = make_customer("other-feed@test.kz")
+        other_site = make_site(other_customer)
+        Request.objects.create(
+            site=other_site, customer=other_customer,
+            work_type="geology", description="чужая",
+            location_type=LocationType.CITY, city=self.city,
+        )
+        r = self.client_c.get("/api/marketplace/requests/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["count"], 1)
+
+    def test_customer_feed_scope_shows_all_open_requests(self):
+        self._create_request()
+        other_customer = make_customer("other-feed2@test.kz")
+        other_site = make_site(other_customer)
+        Request.objects.create(
+            site=other_site, customer=other_customer,
+            work_type="geology", description="чужая",
+            location_type=LocationType.CITY, city=self.city,
+        )
+        r = self.client_c.get("/api/marketplace/requests/?scope=feed")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["count"], 2)
+
+    def test_customer_feed_scope_anonymizes_other_customers_only(self):
+        own_req = self._create_request()
+        other_customer = make_customer("other-feed3@test.kz")
+        other_site = make_site(other_customer)
+        foreign_req = Request.objects.create(
+            site=other_site, customer=other_customer,
+            work_type="geology", description="чужая",
+            location_type=LocationType.CITY, city=self.city,
+        )
+        r = self.client_c.get("/api/marketplace/requests/?scope=feed")
+        self.assertEqual(r.status_code, 200)
+        by_id = {item["id"]: item["customer"] for item in r.data["results"]}
+        self.assertEqual(by_id[own_req.id]["full_name"], "Заказчик Тест")
+        self.assertEqual(by_id[foreign_req.id]["full_name"], "Заказчик")
+        self.assertIsNone(by_id[foreign_req.id]["id"])
+
+    def test_customer_feed_scope_excludes_has_bid(self):
+        self._create_request()
+        r = self.client_c.get("/api/marketplace/requests/?scope=feed")
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("has_bid", r.data["results"][0])
+
+    def test_customer_can_view_foreign_open_request_detail_anonymized(self):
+        other_customer = make_customer("other-detail@test.kz")
+        other_site = make_site(other_customer)
+        foreign_req = Request.objects.create(
+            site=other_site, customer=other_customer,
+            work_type="geology", description="чужая",
+            location_type=LocationType.CITY, city=self.city,
+        )
+        r = self.client_c.get(f"/api/marketplace/requests/{foreign_req.id}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["customer"]["full_name"], "Заказчик")
+        self.assertIn("site_geometry", r.data)
+
+    def test_customer_cannot_view_foreign_non_open_request_detail(self):
+        other_customer = make_customer("other-detail2@test.kz")
+        other_site = make_site(other_customer)
+        foreign_req = Request.objects.create(
+            site=other_site, customer=other_customer,
+            work_type="geology", description="чужая", status=RequestStatus.AWARDED,
+            location_type=LocationType.CITY, city=self.city,
+        )
+        r = self.client_c.get(f"/api/marketplace/requests/{foreign_req.id}/")
+        self.assertEqual(r.status_code, 404)
+
+    def test_customer_sees_own_request_detail_fully_even_if_not_open(self):
+        req = self._create_request()
+        req.status = RequestStatus.AWARDED
+        req.save()
+        r = self.client_c.get(f"/api/marketplace/requests/{req.id}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("customer", r.data)
+        self.assertEqual(r.data["status"], RequestStatus.AWARDED)
 
     # ------------------------------------------------------------------
     # Отклик (мягкий вариант — неверифицированный пропускается)
