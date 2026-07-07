@@ -46,11 +46,55 @@ def _force_2d(geom: GEOSGeometry) -> GEOSGeometry:
     return GEOSGeometry(writer.write(geom), srid=geom.srid or 4326)
 
 
+def _validate_wgs84_bounds(geom: GEOSGeometry) -> None:
+    # Defense-in-depth независимо от источника (KML/GeoJSON/будущие форматы).
+    # _extract_geoms_from_datasource репроецирует по CRS файла, если она
+    # распознана GDAL, — но если CRS не распозналась (битый/нестандартный
+    # crs-член) или парсер обманулся, координаты вне физического диапазона
+    # WGS84 не должны молча уйти в БД: Site.geometry — GeometryField (не
+    # GeographyField), PostGIS сам их не отклонит.
+    min_x, min_y, max_x, max_y = geom.extent
+    if not (-180 <= min_x <= 180 and -180 <= max_x <= 180 and -90 <= min_y <= 90 and -90 <= max_y <= 90):
+        raise ValidationError(
+            "Координаты вне допустимого диапазона широты/долготы — похоже, файл "
+            "экспортирован не в системе координат WGS84 (EPSG:4326). Проверьте CRS "
+            "при экспорте из QGIS."
+        )
+
+
 def _geoms_to_single(geoms: list[GEOSGeometry]) -> GEOSGeometry:
     """Одна геометрия возвращается как есть, несколько — GeometryCollection."""
     if len(geoms) == 1:
         return geoms[0]
     return GeometryCollection(*geoms, srid=4326)
+
+
+def _extract_geoms_from_datasource(ds: DataSource) -> list[GEOSGeometry]:
+    """Общий путь чтения геометрий для KML и GeoJSON через GDAL.
+
+    У KML CRS всегда WGS84 по спецификации формата. У GeoJSON GDAL берёт CRS
+    из crs-члена файла (легаси-поле, которое реально пишет QGIS/ogr2ogr при
+    экспорте не в 4326 — например urn:ogc:def:crs:EPSG::32642), либо по
+    умолчанию считает WGS84, если crs-члена нет (RFC 7946). В любом случае,
+    если геометрия пришла не в 4326, репроецируем явно — не полагаемся на
+    молчаливое приведение SRID.
+    """
+    geoms: list[GEOSGeometry] = []
+    for layer in ds:
+        for feature in layer:
+            try:
+                ogr_geom = feature.geom
+            except GDALException:
+                # нет геометрии у фичи — пропускаем
+                continue
+            if ogr_geom is None:
+                continue
+            if ogr_geom.srs is not None and ogr_geom.srs.srid != 4326:
+                ogr_geom.transform(4326)
+            g = ogr_geom.geos
+            g.srid = 4326
+            geoms.append(g)
+    return geoms
 
 
 def _parse_kml(content: bytes) -> GEOSGeometry:
@@ -65,17 +109,7 @@ def _parse_kml(content: bytes) -> GEOSGeometry:
         except GDALException as exc:
             raise ValidationError(f"Не удалось прочитать KML: {exc}") from exc
 
-        geoms: list[GEOSGeometry] = []
-        for layer in ds:
-            for feature in layer:
-                try:
-                    g = feature.geom.geos
-                    g.srid = 4326
-                    geoms.append(g)
-                except Exception:
-                    # пропускаем фичи без геометрии
-                    continue
-
+        geoms = _extract_geoms_from_datasource(ds)
         if not geoms:
             raise ValidationError("KML-файл не содержит геометрий.")
 
@@ -93,33 +127,32 @@ def _parse_geojson(content: bytes) -> GEOSGeometry:
         raise ValidationError("GeoJSON должен быть в кодировке UTF-8.") from exc
 
     try:
-        data = json.loads(text)
+        json.loads(text)
     except json.JSONDecodeError as exc:
         raise ValidationError(f"Некорректный JSON: {exc}") from exc
 
-    geom_type = data.get("type")
-
+    # Тот же GDAL-путь, что и для KML (см. _extract_geoms_from_datasource) —
+    # вместо ручного парсинга координат через голый GEOSGeometry(), который
+    # игнорировал crs-член файла и слепо ставил srid=4326 независимо от
+    # реальной системы координат.
+    tmp = tempfile.NamedTemporaryFile(suffix=".geojson", delete=False)
     try:
-        if geom_type == "FeatureCollection":
-            features = data.get("features") or []
-            raw_geoms = [f["geometry"] for f in features if f.get("geometry")]
-            if not raw_geoms:
-                raise ValidationError("GeoJSON FeatureCollection не содержит геометрий.")
-            geoms = [GEOSGeometry(json.dumps(g)) for g in raw_geoms]
-        elif geom_type == "Feature":
-            if not data.get("geometry"):
-                raise ValidationError("GeoJSON Feature не содержит геометрии.")
-            geoms = [GEOSGeometry(json.dumps(data["geometry"]))]
-        else:
-            # Голая геометрия (Point, Polygon, MultiPolygon …)
-            geoms = [GEOSGeometry(text)]
-    except ValidationError:
-        raise
-    except Exception as exc:
-        raise ValidationError(f"Не удалось распарсить геометрию GeoJSON: {exc}") from exc
+        tmp.write(content)
+        tmp.flush()
+        tmp.close()
+        try:
+            ds = DataSource(tmp.name)
+        except GDALException as exc:
+            raise ValidationError(f"Не удалось прочитать GeoJSON: {exc}") from exc
 
-    result = _geoms_to_single(geoms)
-    result.srid = 4326
+        geoms = _extract_geoms_from_datasource(ds)
+        if not geoms:
+            raise ValidationError("GeoJSON-файл не содержит геометрий.")
+
+        result = _geoms_to_single(geoms)
+    finally:
+        os.unlink(tmp.name)
+
     return result
 
 
@@ -143,6 +176,7 @@ def parse_geo_file(file) -> tuple[GEOSGeometry, str]:
         geom = _parse_geojson(content)
 
     geom = _force_2d(geom)
+    _validate_wgs84_bounds(geom)
 
     if not geom.valid:
         raise ValidationError(f"Геометрия невалидна: {geom.valid_reason}")

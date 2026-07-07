@@ -77,7 +77,14 @@ export function SiteMap({ geometry, height = 320 }: SiteMapProps) {
   // не отдельный setState("loading") в теле эффекта (react-hooks/set-state-
   // in-effect): та же схема, что requestKey на /feed.
   const [loadedGeometry, setLoadedGeometry] = useState<GeoJSON.Geometry | null>(null);
-  const isMapLoading = geometry !== null && loadedGeometry !== geometry;
+  // Отдельное состояние (не просто catch → placeholder "нет геометрии"):
+  // геометрия ЕСТЬ, она просто не в WGS84-градусах (MapLibre кидает
+  // "Invalid LngLat latitude value" в fitBounds на координатах вроде
+  // 5795889 из-за не-репроецированного файла) — сообщение не должно врать,
+  // что геометрии не было вовсе.
+  const [invalidGeometry, setInvalidGeometry] = useState<GeoJSON.Geometry | null>(null);
+  const isInvalidGeometry = geometry !== null && invalidGeometry === geometry;
+  const isMapLoading = geometry !== null && loadedGeometry !== geometry && !isInvalidGeometry;
 
   useEffect(() => {
     if (!containerRef.current || !geometry) return;
@@ -99,41 +106,50 @@ export function SiteMap({ geometry, height = 320 }: SiteMapProps) {
     map.on("load", () => {
       if (cancelled) return;
 
-      map.addSource("site-geometry", { type: "geojson", data: geometry });
+      try {
+        map.addSource("site-geometry", { type: "geojson", data: geometry });
 
-      if (geometry.type === "Point") {
-        map.addLayer({
-          id: "site-point",
-          type: "circle",
-          source: "site-geometry",
-          paint: {
-            "circle-radius": 8,
-            "circle-color": "#0369A1",
-            "circle-stroke-width": 2,
-            "circle-stroke-color": "#FFFFFF",
-          },
-        });
-      } else {
-        map.addLayer({
-          id: "site-fill",
-          type: "fill",
-          source: "site-geometry",
-          paint: { "fill-color": "#0369A1", "fill-opacity": 0.15 },
-        });
-        map.addLayer({
-          id: "site-line",
-          type: "line",
-          source: "site-geometry",
-          paint: { "line-color": "#0369A1", "line-width": 2 },
-        });
+        if (geometry.type === "Point") {
+          map.addLayer({
+            id: "site-point",
+            type: "circle",
+            source: "site-geometry",
+            paint: {
+              "circle-radius": 8,
+              "circle-color": "#0369A1",
+              "circle-stroke-width": 2,
+              "circle-stroke-color": "#FFFFFF",
+            },
+          });
+        } else {
+          map.addLayer({
+            id: "site-fill",
+            type: "fill",
+            source: "site-geometry",
+            paint: { "fill-color": "#0369A1", "fill-opacity": 0.15 },
+          });
+          map.addLayer({
+            id: "site-line",
+            type: "line",
+            source: "site-geometry",
+            paint: { "line-color": "#0369A1", "line-width": 2 },
+          });
+        }
+
+        const bounds = computeBounds(geometry);
+        if (bounds) {
+          map.fitBounds(bounds, { padding: 40, maxZoom: 16, duration: 0 });
+        }
+
+        setLoadedGeometry(geometry);
+      } catch (err) {
+        // Координаты геометрии физически некорректны для карты (не
+        // WGS84-градусы — например, не репроецированный файл с метрами) —
+        // MapLibre кидает исключение синхронно из fitBounds/LngLat. Ловим,
+        // чтобы не ронять страницу, и показываем отдельное состояние.
+        console.error("SiteMap: некорректные координаты геометрии", err);
+        setInvalidGeometry(geometry);
       }
-
-      const bounds = computeBounds(geometry);
-      if (bounds) {
-        map.fitBounds(bounds, { padding: 40, maxZoom: 16, duration: 0 });
-      }
-
-      setLoadedGeometry(geometry);
     });
 
     return () => {
@@ -157,6 +173,23 @@ export function SiteMap({ geometry, height = 320 }: SiteMapProps) {
       }}
     >
       <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+      {isInvalidGeometry && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "var(--ds-bg)",
+            fontFamily: "var(--ds-font-body)",
+            fontSize: 13,
+            color: "var(--ds-text-muted)",
+          }}
+        >
+          Некорректные координаты объекта
+        </div>
+      )}
       {isMapLoading && (
         <div
           style={{
