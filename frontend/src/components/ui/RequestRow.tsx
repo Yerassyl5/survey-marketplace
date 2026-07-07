@@ -52,25 +52,27 @@ export function formatDate(iso: string): string {
   );
 }
 
-const CONTRACTOR_NOTE_TRUNCATE_LENGTH = 45;
+const DESCRIPTION_TRUNCATE_LENGTH = 45;
 
-function truncateNote(note: string): string {
-  return note.length <= CONTRACTOR_NOTE_TRUNCATE_LENGTH
-    ? note
-    : `${note.slice(0, CONTRACTOR_NOTE_TRUNCATE_LENGTH).trimEnd()}…`;
+function truncateDescription(text: string): string {
+  return text.length <= DESCRIPTION_TRUNCATE_LENGTH
+    ? text
+    : `${text.slice(0, DESCRIPTION_TRUNCATE_LENGTH).trimEnd()}…`;
 }
 
-/** Примечание заказчика для исполнителей — видно сразу в ленте (не иконка/tooltip:
- * решение — текст должен читаться без наведения, важно и на мобильном). Полный
- * текст — на странице заявки; здесь обрезаем и даём title как подсказку с полным
- * текстом, если он не поместился. */
-function ContractorNoteCell({ note }: { note: string }) {
-  if (!note) {
+/** Описание объёма работ — видно сразу в ленте (не иконка/tooltip: решение —
+ * текст должен читаться без наведения, важно и на мобильном). Полный текст —
+ * на странице заявки; здесь обрезаем и даём title как подсказку с полным
+ * текстом, если он не поместился. (2026-07-07: раньше эта колонка показывала
+ * contractor_note — поле в модели/API не менялось, поменялось только то, что
+ * выводится в этой ячейке таблицы.) */
+function DescriptionCell({ text }: { text: string }) {
+  if (!text) {
     return <span style={{ color: "var(--ds-text-muted)" }}>—</span>;
   }
   return (
     <span
-      title={note.length > CONTRACTOR_NOTE_TRUNCATE_LENGTH ? note : undefined}
+      title={text.length > DESCRIPTION_TRUNCATE_LENGTH ? text : undefined}
       style={{
         display: "inline-block",
         maxWidth: 220,
@@ -85,7 +87,7 @@ function ContractorNoteCell({ note }: { note: string }) {
         textOverflow: "ellipsis",
       }}
     >
-      {truncateNote(note)}
+      {truncateDescription(text)}
     </span>
   );
 }
@@ -127,7 +129,7 @@ export function RequestRow({ request, index, canRespond = true }: RequestRowProp
       <td style={cellStyle}>{request.location_display}</td>
       <td style={{ ...cellStyle, color: "var(--ds-text-sec)" }}>{customerLabel}</td>
       <td style={cellStyle}>
-        <ContractorNoteCell note={request.contractor_note} />
+        <DescriptionCell text={request.description} />
       </td>
       <td style={{ ...cellStyle, color: "var(--ds-text-sec)", whiteSpace: "nowrap" }}>
         {formatDate(request.created_at)}

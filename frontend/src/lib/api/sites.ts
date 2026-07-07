@@ -2,15 +2,16 @@
    Объекты (Site) заказчика — GET/POST /api/sites/, POST /api/sites/{id}/geometry/.
    SiteSerializer — GeoFeatureModelSerializer: список оборачивается в
    FeatureCollection, отдельный объект — в Feature ({type, geometry,
-   properties: {address, cadastral_number, owner, ...}}). В отличие от
-   marketplace (bare-геометрия) — здесь всегда GeoJSON Feature-обёртка.
+   properties: {owner, ...}}). В отличие от marketplace (bare-геометрия) —
+   здесь всегда GeoJSON Feature-обёртка.
+   Упрощено 2026-07-07: address/cadastral_number убраны из модели — Site
+   больше не переиспользуется между заявками, участок определяется только
+   геометрией (см. SiteFields.tsx — форма всегда создаёт новый Site).
    ──────────────────────────────────────────────────────────────────────── */
 
 import { apiFetch } from "./client";
 
 export interface SiteProperties {
-  address: string;
-  cadastral_number: string;
   owner: number;
   created_at: string;
   updated_at: string;
@@ -29,8 +30,6 @@ interface SiteFeatureCollection {
 }
 
 export interface SiteCreatePayload {
-  address: string;
-  cadastral_number?: string;
   geometry: GeoJSON.Geometry;
 }
 
@@ -45,10 +44,7 @@ export async function createSite(payload: SiteCreatePayload): Promise<Site> {
     body: JSON.stringify({
       type: "Feature",
       geometry: payload.geometry,
-      properties: {
-        address: payload.address,
-        cadastral_number: payload.cadastral_number ?? "",
-      },
+      properties: {},
     }),
   });
 }

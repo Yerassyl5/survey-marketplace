@@ -8,8 +8,8 @@ from .models import Site
 
 @admin.register(Site)
 class SiteAdmin(GISModelAdmin):
-    list_display = ["address", "owner", "cadastral_number", "created_at"]
+    list_display = ["__str__", "owner", "created_at"]
     list_filter = ["created_at"]
     list_select_related = ["owner"]
-    search_fields = ["address", "cadastral_number", "owner__email"]
+    search_fields = ["owner__email"]
     ordering = ["-created_at"]

@@ -29,7 +29,7 @@ import type { FeedResponse } from "@/lib/api/marketplace";
 import { ApiError } from "@/lib/api/types";
 
 const PAGE_SIZE = 20;
-const COLUMNS = ["№", "Тип работ", "Локация", "Заказчик", "Примечание", "Опубликовано", ""];
+const COLUMNS = ["№", "Тип работ", "Локация", "Заказчик", "Описание", "Опубликовано", ""];
 
 /* ── Табличная обёртка ─────────────────────────────────────────────────── */
 function TableShell({ children }: { children: ReactNode }) {

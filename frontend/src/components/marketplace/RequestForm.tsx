@@ -21,16 +21,15 @@ import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { Input } from "@/components/ui/Input";
 import { WORK_TYPE_LABELS } from "@/components/ui/RequestRow";
-import { EMPTY_NEW_SITE, SiteFields, validateSiteFields } from "@/components/marketplace/SiteFields";
-import type { SiteFieldsValue } from "@/components/marketplace/SiteFields";
+import { EMPTY_SITE_FIELDS, SiteFields, resolveInitialGeometry, validateSiteFields } from "@/components/marketplace/SiteFields";
+import type { SiteFieldsState } from "@/components/marketplace/SiteFields";
 import { useRouter as useI18nRouter } from "@/i18n/navigation";
 import { AuthRequiredError } from "@/lib/api/client";
 import { getLocations } from "@/lib/api/geo";
 import type { GeoLocations } from "@/lib/api/geo";
 import { createRequest } from "@/lib/api/marketplace";
 import type { WorkType } from "@/lib/api/marketplace";
-import { createSite, getSites, uploadSiteGeometry } from "@/lib/api/sites";
-import type { Site } from "@/lib/api/sites";
+import { createSite, uploadSiteGeometry } from "@/lib/api/sites";
 import { ApiError } from "@/lib/api/types";
 
 const WORK_TYPES = Object.keys(WORK_TYPE_LABELS) as WorkType[];
@@ -64,14 +63,12 @@ export function RequestForm() {
   const [description, setDescription] = useState("");
   const [tzFile, setTzFile] = useState<File | null>(null);
   const [contractorNote, setContractorNote] = useState("");
-  const [site, setSite] = useState<SiteFieldsValue>({ mode: "new", site: EMPTY_NEW_SITE });
+  const [site, setSite] = useState<SiteFieldsState>(EMPTY_SITE_FIELDS);
 
   const [locations, setLocations] = useState<GeoLocations | null>(null);
-  const [sites, setSites] = useState<Site[] | null>(null);
 
   useEffect(() => {
     getLocations().then(setLocations).catch(() => {});
-    getSites().then(setSites).catch(() => setSites([]));
   }, []);
 
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
@@ -93,8 +90,7 @@ export function RequestForm() {
       : undefined) ?? fieldErrors?.city ?? fieldErrors?.district;
   const descriptionError = (hasAttemptedSubmit && !description.trim() ? "Опишите объём работ." : undefined) ?? fieldErrors?.description;
   const shownSiteErrors = {
-    ...(hasAttemptedSubmit ? siteErrors : {}),
-    selection: (hasAttemptedSubmit ? siteErrors.selection : undefined) ?? fieldErrors?.site,
+    geometry: (hasAttemptedSubmit ? siteErrors.geometry : undefined) ?? fieldErrors?.site,
   };
 
   function hasBlockingErrors(): boolean {
@@ -102,9 +98,7 @@ export function RequestForm() {
       !workType ||
         (location.cityId == null && location.districtId == null) ||
         !description.trim() ||
-        siteErrors.selection ||
-        siteErrors.address ||
-        siteErrors.point,
+        siteErrors.geometry,
     );
   }
 
@@ -119,22 +113,16 @@ export function RequestForm() {
     setIsSubmitting(true);
     try {
       let siteId: number;
-      if (site.mode === "existing") {
-        siteId = site.siteId as number;
-      } else if (createdSiteId != null) {
+      if (createdSiteId != null) {
         siteId = createdSiteId;
       } else {
-        const created = await createSite({
-          address: site.site.address.trim(),
-          cadastral_number: site.site.cadastralNumber.trim() || undefined,
-          geometry: { type: "Point", coordinates: [site.site.point!.lng, site.site.point!.lat] },
-        });
+        const created = await createSite({ geometry: resolveInitialGeometry(site) });
         siteId = created.id;
         setCreatedSiteId(siteId);
       }
 
-      if (site.mode === "new" && site.site.file && !siteGeometryUploaded) {
-        await uploadSiteGeometry(siteId, site.site.file);
+      if (site.file && !siteGeometryUploaded) {
+        await uploadSiteGeometry(siteId, site.file);
         setSiteGeometryUploaded(true);
       }
 
@@ -240,8 +228,8 @@ export function RequestForm() {
         </FormField>
       </Section>
 
-      <Section title="Объект">
-        <SiteFields sites={sites} value={site} onChange={setSite} errors={shownSiteErrors} />
+      <Section title="Участок">
+        <SiteFields value={site} onChange={setSite} errors={shownSiteErrors} />
       </Section>
 
       <Button type="submit" disabled={isSubmitting} size="lg" style={{ alignSelf: "flex-start", paddingLeft: 32, paddingRight: 32 }}>

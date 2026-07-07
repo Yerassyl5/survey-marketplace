@@ -1,5 +1,7 @@
-# Модель Site — первоклассная сущность (адрес, точка/контур PostGIS,
-# кадастровый номер, владелец-заказчик) — architecture.md §4.2.
+# Модель Site — первоклассная сущность (точка/контур PostGIS, владелец-заказчик)
+# — architecture.md §4.2. Упрощена 2026-07-07: address/cadastral_number убраны
+# (не использовались нигде за пределами формы создания — участок идентифицируется
+# геометрией, не адресом; Site больше не переиспользуется между заявками).
 from __future__ import annotations
 
 from django.conf import settings
@@ -14,14 +16,12 @@ class Site(models.Model):
         related_name="sites",
         limit_choices_to={"role": "customer"},
     )
-    address = models.CharField(max_length=512)
     # Точка или контур участка на карте — одно геометрическое поле без
     # жёсткого типа, чтобы не плодить отдельные point/contour-поля.
     geometry = gis_models.GeometryField(srid=4326)
-    cadastral_number = models.CharField(max_length=64, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self) -> str:
-        return self.address
+        return f"Site #{self.pk} ({self.owner.email})"

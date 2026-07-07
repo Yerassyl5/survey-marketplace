@@ -1,199 +1,100 @@
 "use client";
 
 /* ────────────────────────────────────────────────────────────────────────
-   SiteFields.tsx — блок «Объект» формы создания заявки: выбор уже
-   существующего объекта заказчика ИЛИ создание нового (адрес + точка на
-   карте + опциональный файл KML/GeoJSON, уточняющий контур).
+   SiteFields.tsx — блок «Участок» формы создания заявки: точка на карте
+   ИЛИ файл (KML/GeoJSON) — ровно один источник геометрии обязателен. Site
+   больше не переиспользуется между заявками (упрощено 2026-07-07 вместе с
+   удалением address/cadastral_number из модели) — форма всегда создаёт
+   новый Site, выбора «из существующих» больше нет.
 
-   Почему точка ВСЕГДА обязательна, а файл — опционален (не два равноправных
-   способа "или-или", а точка + необязательное уточнение поверх неё):
-   Site.geometry в БД — NOT NULL, а POST /api/sites/ создаёт объект сразу
-   с геометрией в теле запроса. Файл же (SiteGeometryUploadView) обновляет
-   геометрию УЖЕ существующего объекта — значит объект в любом случае нужно
-   создать с какой-то геометрией первым шагом. Точка на карте — дешёвый
-   способ всегда её иметь; файл, если приложен, заменяет её точным контуром
-   вторым вызовом сразу после создания объекта (см. submit в RequestForm.tsx).
+   Если заданы и точка, и файл — при сабмите (см. RequestForm.tsx) побеждает
+   файл: он несёт точный контур, точка используется только как временный
+   якорь для создания Site (Site.geometry — NOT NULL в БД, а серверный
+   парсинг файла — отдельный второй вызов ПОСЛЕ создания объекта, который эту
+   точку тут же перезаписывает).
    ──────────────────────────────────────────────────────────────────────── */
-
-import type { CSSProperties } from "react";
 
 import { FilePicker } from "@/components/ui/FilePicker";
 import { FormField } from "@/components/ui/FormField";
-import { Input } from "@/components/ui/Input";
 import { MapPointPicker } from "@/components/ui/MapPointPicker";
 import type { LngLat } from "@/components/ui/MapPointPicker";
-import type { Site } from "@/lib/api/sites";
 
-export interface NewSiteState {
-  address: string;
-  cadastralNumber: string;
+export interface SiteFieldsState {
   point: LngLat | null;
   file: File | null;
 }
 
-export const EMPTY_NEW_SITE: NewSiteState = {
-  address: "",
-  cadastralNumber: "",
+export const EMPTY_SITE_FIELDS: SiteFieldsState = {
   point: null,
   file: null,
 };
 
-export type SiteFieldsValue =
-  | { mode: "existing"; siteId: number | null }
-  | { mode: "new"; site: NewSiteState };
-
 export interface SiteFieldsErrors {
-  /** Не выбран ни один объект / не выбран режим. */
-  selection?: string;
-  address?: string;
-  point?: string;
+  geometry?: string;
 }
 
-interface RadioCardProps {
-  checked: boolean;
-  onSelect: () => void;
-  title: string;
-  subtitle?: string;
-}
-
-function RadioCard({ checked, onSelect, title, subtitle }: RadioCardProps) {
-  const style: CSSProperties = {
-    display: "flex",
-    alignItems: "flex-start",
-    gap: 10,
-    padding: "12px 14px",
-    border: `1px solid ${checked ? "var(--ds-blue)" : "var(--ds-border)"}`,
-    background: checked ? "var(--ds-blue-xlight)" : "var(--ds-bg-white)",
-    borderRadius: "var(--ds-r-md)",
-    cursor: "pointer",
-    transition: "border-color 150ms, background 150ms",
-  };
-  return (
-    <label style={style}>
-      <input
-        type="radio"
-        checked={checked}
-        onChange={onSelect}
-        style={{ marginTop: 3, accentColor: "var(--ds-blue)", cursor: "pointer", flexShrink: 0 }}
-      />
-      <span>
-        <span style={{ display: "block", fontFamily: "var(--ds-font-body)", fontSize: 14, fontWeight: 600, color: "var(--ds-text)" }}>
-          {title}
-        </span>
-        {subtitle && (
-          <span style={{ display: "block", fontFamily: "var(--ds-font-body)", fontSize: 12, color: "var(--ds-text-muted)", marginTop: 2 }}>
-            {subtitle}
-          </span>
-        )}
-      </span>
-    </label>
-  );
-}
-
-export function validateSiteFields(value: SiteFieldsValue): SiteFieldsErrors {
-  if (value.mode === "existing") {
-    return value.siteId == null ? { selection: "Выберите объект из списка." } : {};
+export function validateSiteFields(value: SiteFieldsState): SiteFieldsErrors {
+  if (!value.point && !value.file) {
+    return { geometry: "Укажите участок: поставьте точку на карте или загрузите файл (KML/GeoJSON)." };
   }
-  const errors: SiteFieldsErrors = {};
-  if (!value.site.address.trim()) errors.address = "Укажите адрес объекта.";
-  if (!value.site.point) errors.point = "Укажите точку на карте.";
-  return errors;
+  return {};
+}
+
+// Казахстан — тот же дефолтный центр, что и в MapPointPicker (KAZAKHSTAN_CENTER).
+// Используется ТОЛЬКО как временная геометрия при создании Site, если приложен
+// файл без точки: Site.geometry — NOT NULL в БД, а серверный парсинг файла
+// (uploadSiteGeometry) обновляет геометрию УЖЕ существующего объекта — значит
+// объект сначала нужно создать с какой-то геометрией. Этот центр тут же
+// перезаписывается вторым вызовом внутри того же submit (см. RequestForm.tsx) —
+// пользователь его не видит, между вызовами нет ни одного запроса на чтение.
+const FALLBACK_CENTER: LngLat = { lng: 71.4, lat: 51.1 };
+
+/** Геометрия для POST /api/sites/ — точка, если задана, иначе временный
+ * FALLBACK_CENTER (см. комментарий выше), который перезапишет файл. */
+export function resolveInitialGeometry(state: SiteFieldsState): GeoJSON.Geometry {
+  const point = state.point ?? FALLBACK_CENTER;
+  return { type: "Point", coordinates: [point.lng, point.lat] };
 }
 
 export interface SiteFieldsProps {
-  sites: Site[] | null;
-  value: SiteFieldsValue;
-  onChange: (next: SiteFieldsValue) => void;
+  value: SiteFieldsState;
+  onChange: (next: SiteFieldsState) => void;
   errors: SiteFieldsErrors;
 }
 
-export function SiteFields({ sites, value, onChange, errors }: SiteFieldsProps) {
-  if (sites === null) {
-    return (
-      <p style={{ fontFamily: "var(--ds-font-body)", fontSize: 13, color: "var(--ds-text-muted)" }}>
-        Загрузка ваших объектов…
-      </p>
-    );
-  }
-
-  const newSite = value.mode === "new" ? value.site : EMPTY_NEW_SITE;
-
-  function selectExisting(siteId: number) {
-    onChange({ mode: "existing", siteId });
-  }
-
-  function selectNew() {
-    onChange({ mode: "new", site: newSite });
-  }
-
-  function patchNewSite(patch: Partial<NewSiteState>) {
-    onChange({ mode: "new", site: { ...newSite, ...patch } });
+export function SiteFields({ value, onChange, errors }: SiteFieldsProps) {
+  function patch(patchValue: Partial<SiteFieldsState>) {
+    onChange({ ...value, ...patchValue });
   }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {sites.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <RadioCard
-            checked={value.mode === "new"}
-            onSelect={selectNew}
-            title="Новый объект"
-            subtitle="Укажите адрес и местоположение — понадобится один раз, дальше объект можно использовать для новых заявок"
-          />
-          {sites.map((s) => (
-            <RadioCard
-              key={s.id}
-              checked={value.mode === "existing" && value.siteId === s.id}
-              onSelect={() => selectExisting(s.id)}
-              title={s.properties.address}
-              subtitle={s.properties.cadastral_number ? `Кадастровый номер: ${s.properties.cadastral_number}` : undefined}
-            />
-          ))}
-          {errors.selection && (
-            <p role="alert" style={{ fontFamily: "var(--ds-font-body)", fontSize: 12, fontWeight: 500, color: "var(--ds-error)", margin: 0 }}>
-              {errors.selection}
-            </p>
-          )}
-        </div>
-      )}
+      <FormField
+        id="site-point"
+        label="Точка на карте"
+        error={errors.geometry}
+        hint={
+          value.file
+            ? "Геометрия берётся из файла — точка ниже игнорируется."
+            : "Кликните по карте, чтобы отметить участок, или приложите файл ниже."
+        }
+      >
+        <MapPointPicker value={value.point} onChange={(point) => patch({ point })} hasError={Boolean(errors.geometry)} />
+      </FormField>
 
-      {value.mode === "new" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <FormField id="site-address" label="Адрес объекта" required error={errors.address}>
-            <Input
-              value={newSite.address}
-              onChange={(e) => patchNewSite({ address: e.target.value })}
-              placeholder="г. Алматы, ул. Примерная, 10"
-            />
-          </FormField>
-
-          <FormField id="site-cadastral" label="Кадастровый номер (необязательно)">
-            <Input
-              value={newSite.cadastralNumber}
-              onChange={(e) => patchNewSite({ cadastralNumber: e.target.value })}
-              placeholder="13-123-456-789"
-            />
-          </FormField>
-
-          <FormField id="site-point" label="Местоположение на карте" required error={errors.point} hint="Кликните по карте, чтобы поставить точку — она задаёт базовое расположение объекта.">
-            <MapPointPicker value={newSite.point} onChange={(point) => patchNewSite({ point })} hasError={Boolean(errors.point)} />
-          </FormField>
-
-          <FormField
-            id="site-geometry-file"
-            label="Точный контур участка (необязательно)"
-            hint="KML или GeoJSON — если приложите, заменит точку выше точным контуром (важно для оценки объёма/площади исполнителем)."
-          >
-            <FilePicker
-              id="site-geometry-file"
-              file={newSite.file}
-              onChange={(file) => patchNewSite({ file })}
-              accept=".kml,.geojson,.json"
-              buttonLabel="Загрузить файл"
-            />
-          </FormField>
-        </div>
-      )}
+      <FormField
+        id="site-geometry-file"
+        label="Файл участка (необязательно, если задана точка)"
+        hint="KML или GeoJSON — если приложен, геометрия участка берётся из файла, точка на карте не используется."
+      >
+        <FilePicker
+          id="site-geometry-file"
+          file={value.file}
+          onChange={(file) => patch({ file })}
+          accept=".kml,.geojson,.json"
+          buttonLabel="Загрузить файл"
+        />
+      </FormField>
     </div>
   );
 }

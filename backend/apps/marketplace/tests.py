@@ -34,7 +34,7 @@ def make_contractor(email="contractor@test.kz", verified=False):
 
 
 def make_site(owner):
-    return Site.objects.create(owner=owner, address="г. Алматы", geometry=Point(76.9, 43.2))
+    return Site.objects.create(owner=owner, geometry=Point(76.9, 43.2))
 
 
 def make_city(name="Алматы", region=None):

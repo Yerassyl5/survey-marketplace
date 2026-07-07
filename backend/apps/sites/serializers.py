@@ -18,7 +18,7 @@ class SiteSerializer(GeoFeatureModelSerializer):
     class Meta:
         model = Site
         geo_field = "geometry"
-        fields = ["id", "address", "geometry", "cadastral_number", "owner", "created_at", "updated_at"]
+        fields = ["id", "geometry", "owner", "created_at", "updated_at"]
         read_only_fields = ["id", "owner", "created_at", "updated_at"]
 
     def create(self, validated_data):
