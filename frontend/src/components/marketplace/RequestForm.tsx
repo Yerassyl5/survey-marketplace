@@ -21,7 +21,7 @@ import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { Input } from "@/components/ui/Input";
 import { WORK_TYPE_LABELS } from "@/components/ui/RequestRow";
-import { EMPTY_SITE_FIELDS, SiteFields, resolveInitialGeometry, validateSiteFields } from "@/components/marketplace/SiteFields";
+import { EMPTY_SITE_FIELDS, SiteFields, resolveGeometry, validateSiteFields } from "@/components/marketplace/SiteFields";
 import type { SiteFieldsState } from "@/components/marketplace/SiteFields";
 import { useRouter as useI18nRouter } from "@/i18n/navigation";
 import { AuthRequiredError } from "@/lib/api/client";
@@ -29,7 +29,7 @@ import { getLocations } from "@/lib/api/geo";
 import type { GeoLocations } from "@/lib/api/geo";
 import { createRequest } from "@/lib/api/marketplace";
 import type { WorkType } from "@/lib/api/marketplace";
-import { createSite, uploadSiteGeometry } from "@/lib/api/sites";
+import { createSite } from "@/lib/api/sites";
 import { ApiError } from "@/lib/api/types";
 
 const WORK_TYPES = Object.keys(WORK_TYPE_LABELS) as WorkType[];
@@ -76,12 +76,6 @@ export function RequestForm() {
   const [formError, setFormError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string> | null>(null);
 
-  // Состояние ретрая: если создание заявки упало ПОСЛЕ того, как новый Site
-  // уже создан (и, может быть, геометрия уже уточнена файлом) — при повторной
-  // отправке эти шаги не повторяются, используется уже созданный site.
-  const [createdSiteId, setCreatedSiteId] = useState<number | null>(null);
-  const [siteGeometryUploaded, setSiteGeometryUploaded] = useState(false);
-
   const siteErrors = validateSiteFields(site);
   const workTypeError = (hasAttemptedSubmit && !workType ? "Выберите тип работ." : undefined) ?? fieldErrors?.work_type;
   const locationError =
@@ -110,24 +104,21 @@ export function RequestForm() {
 
     if (hasBlockingErrors()) return;
 
+    // resolveGeometry возвращает null, только если ни точки, ни распарсенного
+    // файла нет — hasBlockingErrors() (через validateSiteFields) уже должен был
+    // отловить это раньше и не пустить сюда; проверка ниже — просто типобезопасность.
+    const geometry = resolveGeometry(site);
+    if (!geometry) {
+      setFormError("Не удалось определить геометрию участка. Проверьте точку на карте или файл.");
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      let siteId: number;
-      if (createdSiteId != null) {
-        siteId = createdSiteId;
-      } else {
-        const created = await createSite({ geometry: resolveInitialGeometry(site) });
-        siteId = created.id;
-        setCreatedSiteId(siteId);
-      }
-
-      if (site.file && !siteGeometryUploaded) {
-        await uploadSiteGeometry(siteId, site.file);
-        setSiteGeometryUploaded(true);
-      }
+      const createdSite = await createSite({ geometry });
 
       const created = await createRequest({
-        site: siteId,
+        site: createdSite.id,
         work_type: workType as WorkType,
         description: description.trim(),
         location_type: location.cityId != null ? "city" : "district",

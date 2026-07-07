@@ -7,26 +7,50 @@
    удалением address/cadastral_number из модели) — форма всегда создаёт
    новый Site, выбора «из существующих» больше нет.
 
-   Если заданы и точка, и файл — при сабмите (см. RequestForm.tsx) побеждает
-   файл: он несёт точный контур, точка используется только как временный
-   якорь для создания Site (Site.geometry — NOT NULL в БД, а серверный
-   парсинг файла — отдельный второй вызов ПОСЛЕ создания объекта, который эту
-   точку тут же перезаписывает).
+   Файл парсится ЗДЕСЬ, на клиенте формы, ДО создания Site — через
+   POST /api/geo/parse-geometry/ (бесстейтовый, ничего не сохраняет).
+   2026-07-08: раньше Site создавался сразу с временной точкой-заглушкой
+   (FALLBACK_CENTER), которую второй запрос (uploadSiteGeometry) тут же
+   перезаписывал геометрией из файла — при сбое второго запроса в БД мог
+   остаться Site с фейковыми координатами. Теперь порядок обратный: файл
+   парсится первым, Site создаётся уже с финальной геометрией одним вызовом
+   createSite() — заглушки в принципе больше не существует.
+
+   Карта — условный рендер одного из двух ГОТОВЫХ компонентов, оба не
+   изменены: пока нет успешно распарсенного файла — MapPointPicker (ввод
+   клика); как только файл распарсен — SiteMap (только чтение, автозум по
+   геометрии). Если заданы и точка, и файл — при сабмите (resolveGeometry)
+   побеждает файл: он несёт точный контур, точка на карте лишь заменяется
+   картой из файла и в API не уходит.
    ──────────────────────────────────────────────────────────────────────── */
+
+import { useEffect, useRef } from "react";
+import type { CSSProperties } from "react";
 
 import { FilePicker } from "@/components/ui/FilePicker";
 import { FormField } from "@/components/ui/FormField";
 import { MapPointPicker } from "@/components/ui/MapPointPicker";
 import type { LngLat } from "@/components/ui/MapPointPicker";
+import { SiteMap } from "@/components/ui/SiteMap";
+import { parseGeometryFile } from "@/lib/api/sites";
+import { ApiError } from "@/lib/api/types";
 
 export interface SiteFieldsState {
   point: LngLat | null;
   file: File | null;
+  /** Геометрия, полученная от POST /api/geo/parse-geometry/ — null, пока файла
+   * нет, идёт парсинг, или парсинг закончился ошибкой (см. fileParseError). */
+  parsedFileGeometry: GeoJSON.Geometry | null;
+  isParsingFile: boolean;
+  fileParseError: string | null;
 }
 
 export const EMPTY_SITE_FIELDS: SiteFieldsState = {
   point: null,
   file: null,
+  parsedFileGeometry: null,
+  isParsingFile: false,
+  fileParseError: null,
 };
 
 export interface SiteFieldsErrors {
@@ -34,26 +58,25 @@ export interface SiteFieldsErrors {
 }
 
 export function validateSiteFields(value: SiteFieldsState): SiteFieldsErrors {
-  if (!value.point && !value.file) {
+  if (value.isParsingFile) {
+    return { geometry: "Дождитесь проверки файла." };
+  }
+  if (value.fileParseError) {
+    return { geometry: "Исправьте ошибку в файле участка или уберите его." };
+  }
+  if (!value.point && !value.parsedFileGeometry) {
     return { geometry: "Укажите участок: поставьте точку на карте или загрузите файл (KML/GeoJSON)." };
   }
   return {};
 }
 
-// Казахстан — тот же дефолтный центр, что и в MapPointPicker (KAZAKHSTAN_CENTER).
-// Используется ТОЛЬКО как временная геометрия при создании Site, если приложен
-// файл без точки: Site.geometry — NOT NULL в БД, а серверный парсинг файла
-// (uploadSiteGeometry) обновляет геометрию УЖЕ существующего объекта — значит
-// объект сначала нужно создать с какой-то геометрией. Этот центр тут же
-// перезаписывается вторым вызовом внутри того же submit (см. RequestForm.tsx) —
-// пользователь его не видит, между вызовами нет ни одного запроса на чтение.
-const FALLBACK_CENTER: LngLat = { lng: 71.4, lat: 51.1 };
-
-/** Геометрия для POST /api/sites/ — точка, если задана, иначе временный
- * FALLBACK_CENTER (см. комментарий выше), который перезапишет файл. */
-export function resolveInitialGeometry(state: SiteFieldsState): GeoJSON.Geometry {
-  const point = state.point ?? FALLBACK_CENTER;
-  return { type: "Point", coordinates: [point.lng, point.lat] };
+/** Финальная геометрия для POST /api/sites/ — геометрия из файла побеждает
+ * точку (см. хедер-комментарий). null означает, что validateSiteFields()
+ * должен был заблокировать сабмит раньше, чем этот вызов вообще случится. */
+export function resolveGeometry(state: SiteFieldsState): GeoJSON.Geometry | null {
+  if (state.parsedFileGeometry) return state.parsedFileGeometry;
+  if (state.point) return { type: "Point", coordinates: [state.point.lng, state.point.lat] };
+  return null;
 }
 
 export interface SiteFieldsProps {
@@ -62,35 +85,101 @@ export interface SiteFieldsProps {
   errors: SiteFieldsErrors;
 }
 
+// Тот же визуальный паттерн плейсхолдера, что в SiteMap.tsx/MapPointPicker.tsx
+// (не импортируется оттуда — эти компоненты сознательно не трогаем).
+const mapLoadingStyle: CSSProperties = {
+  height: 320,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background: "var(--ds-bg)",
+  border: "1px solid var(--ds-border)",
+  borderRadius: "var(--ds-r-lg)",
+  color: "var(--ds-text-muted)",
+  fontFamily: "var(--ds-font-body)",
+  fontSize: 13,
+};
+
 export function SiteFields({ value, onChange, errors }: SiteFieldsProps) {
+  // onChange меняется на каждый рендер родителя, а эффект ниже реагирует
+  // только на смену файла — держим актуальный value в ref (как onChangeRef в
+  // MapPointPicker.tsx), чтобы async-колбэки parseGeometryFile() не затирали
+  // точку/другие поля, если они изменились, пока запрос был в полёте.
+  const valueRef = useRef(value);
+  useEffect(() => {
+    valueRef.current = value;
+  });
+
+  useEffect(() => {
+    if (!value.file) return;
+    const file = value.file;
+    let cancelled = false;
+
+    onChange({ ...valueRef.current, isParsingFile: true, fileParseError: null, parsedFileGeometry: null });
+
+    parseGeometryFile(file)
+      .then((result) => {
+        if (cancelled) return;
+        onChange({ ...valueRef.current, parsedFileGeometry: result.geometry, isParsingFile: false, fileParseError: null });
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        const message = err instanceof ApiError ? err.message : "Не удалось прочитать файл.";
+        onChange({ ...valueRef.current, parsedFileGeometry: null, isParsingFile: false, fileParseError: message });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- valueRef.current всегда актуален, value.file — единственная содержательная зависимость
+  }, [value.file]);
+
   function patch(patchValue: Partial<SiteFieldsState>) {
     onChange({ ...value, ...patchValue });
+  }
+
+  function handleFileChange(file: File | null) {
+    if (file) {
+      patch({ file });
+    } else {
+      // Убрали файл — точка (если была) всплывает обратно как есть, её не трогаем.
+      patch({ file: null, parsedFileGeometry: null, fileParseError: null, isParsingFile: false });
+    }
   }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <FormField
         id="site-point"
-        label="Точка на карте"
+        label="Участок на карте"
         error={errors.geometry}
         hint={
-          value.file
-            ? "Геометрия берётся из файла — точка ниже игнорируется."
-            : "Кликните по карте, чтобы отметить участок, или приложите файл ниже."
+          value.isParsingFile
+            ? "Проверяем файл…"
+            : value.parsedFileGeometry
+              ? "Участок из файла — проверьте границы на карте."
+              : "Кликните по карте, чтобы отметить участок, или приложите файл ниже."
         }
       >
-        <MapPointPicker value={value.point} onChange={(point) => patch({ point })} hasError={Boolean(errors.geometry)} />
+        {value.isParsingFile ? (
+          <div style={mapLoadingStyle}>Проверяем файл…</div>
+        ) : value.parsedFileGeometry ? (
+          <SiteMap geometry={value.parsedFileGeometry} />
+        ) : (
+          <MapPointPicker value={value.point} onChange={(point) => patch({ point })} hasError={Boolean(errors.geometry)} />
+        )}
       </FormField>
 
       <FormField
         id="site-geometry-file"
         label="Файл участка (необязательно, если задана точка)"
-        hint="KML или GeoJSON — если приложен, геометрия участка берётся из файла, точка на карте не используется."
+        error={value.fileParseError ?? undefined}
+        hint="KML или GeoJSON — если приложен и успешно прочитан, геометрия участка берётся из файла, точка на карте не используется."
       >
         <FilePicker
           id="site-geometry-file"
           file={value.file}
-          onChange={(file) => patch({ file })}
+          onChange={handleFileChange}
           accept=".kml,.geojson,.json"
           buttonLabel="Загрузить файл"
         />
