@@ -212,8 +212,11 @@ function DetailContent({
   const customerLabel = request.customer ? request.customer.organization_name || request.customer.full_name : "Заказчик";
   // Уточняющая геометрия ЗАЯВКИ (необязательна) приоритетнее геометрии
   // объекта — так и задумано моделью (Request.geometry: "участок уже есть
-  // на объекте (Site)", это поле только для уточнений).
-  const geometry = request.geometry ?? request.site_geometry;
+  // на объекте (Site)", это поле только для уточнений). Оба поля теперь
+  // optional (см. marketplace.ts) — ?? null нормализует undefined (поле
+  // отсутствует у текущего сериализатора) к null (SiteMap ждёт Geometry | null,
+  // не | undefined).
+  const geometry = request.geometry ?? request.site_geometry ?? null;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>

@@ -23,8 +23,13 @@ export interface FeedRequest {
   tz_file: string | null;
   /** Уточняющая геометрия ЗАЯВКИ (необязательна) — голая GeoJSON-геометрия
    * (bare GeometryField на бэкенде), НЕ Feature. Обычно null — участок уже
-   * описан геометрией Site (см. FeedRequestDetail.site_geometry). */
-  geometry: GeoJSON.Geometry | null;
+   * описан геометрией Site (см. FeedRequestDetail.site_geometry). Optional,
+   * не только nullable: один и тот же эндпоинт (`GET /marketplace/requests/{id}/`)
+   * обслуживают разные Django-сериализаторы по роли/владению заявкой — какой
+   * из них реально включает это поле, тип на фронте гарантировать не может
+   * (баг 2026-07-07: site_geometry отсутствовало у RequestSerializer, заказчик
+   * не видел карту на своей заявке — тип это молча пропустил). */
+  geometry?: GeoJSON.Geometry | null;
   location_type: LocationType;
   city: number | null;
   district: number | null;
@@ -45,12 +50,18 @@ export interface FeedRequest {
   updated_at: string;
 }
 
-/** Детали заявки — RequestFeedDetailSerializer (только GET одной заявки,
- * не список). site_geometry — тоже голая GeoJSON-геометрия, не Feature:
- * в отличие от sites.SiteSerializer (GeoFeatureModelSerializer), тут нет
- * обёртки {type:"Feature", geometry:{...}, properties:{...}}. */
+/** Детали заявки — GET /marketplace/requests/{id}/, только GET одной заявки,
+ * не список. Один эндпоинт, но РАЗНЫЕ Django-сериализаторы по роли/владению
+ * заявкой (RequestSerializer — заказчик, своя; RequestFeedDetailSerializer —
+ * исполнитель; RequestFeedForCustomerDetailSerializer — заказчик, чужая через
+ * ленту): набор полей у них не идентичен, поэтому этот TS-тип — объединение
+ * возможных форм, не гарантия конкретного набора. site_geometry — голая
+ * GeoJSON-геометрия, не Feature: в отличие от sites.SiteSerializer
+ * (GeoFeatureModelSerializer), тут нет обёртки
+ * {type:"Feature", geometry:{...}, properties:{...}}. Optional — не все три
+ * серализатора обязаны его включать (см. комментарий у FeedRequest.geometry). */
 export interface FeedRequestDetail extends FeedRequest {
-  site_geometry: GeoJSON.Geometry | null;
+  site_geometry?: GeoJSON.Geometry | null;
 }
 
 export interface PaginatedResponse<T> {

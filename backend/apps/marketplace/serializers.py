@@ -82,6 +82,13 @@ class RequestSerializer(RequestLocationValidationMixin, serializers.ModelSeriali
     """Для ЗАКАЗЧИКА — его собственные заявки. Показывает bids_count (число откликов),
     НЕ показывает customer (это он сам)."""
     geometry = GeometryField(required=False, allow_null=True)
+    # Геометрия ОБЪЕКТА (Site), не заявки — та же голая GeometryField под тем же
+    # именем, что и в RequestFeedDetailSerializer/RequestFeedForCustomerDetailSerializer,
+    # чтобы фронтовый `request.geometry ?? request.site_geometry` (SiteMap на
+    # /requests/[id]) работал одинаково для всех ролей. До этой правки поле
+    # отсутствовало здесь — заказчик не видел карту на СВОЕЙ заявке (единственный
+    # путь, где используется этот сериализатор), хотя у объекта геометрия была.
+    site_geometry = GeometryField(source="site.geometry", read_only=True)
     bids_count = serializers.IntegerField(source="bids.count", read_only=True)
     result_files = ResultFileSerializer(many=True, read_only=True)
     location_display = serializers.SerializerMethodField()
@@ -90,7 +97,7 @@ class RequestSerializer(RequestLocationValidationMixin, serializers.ModelSeriali
         model = Request
         fields = [
             "id", "site", "work_type", "description", "tz_file",
-            "geometry", "location_type", "city", "district", "location_display",
+            "geometry", "site_geometry", "location_type", "city", "district", "location_display",
             "contractor_note",
             "status", "assigned_contractor",
             "result_files", "result_note", "bids_count",
