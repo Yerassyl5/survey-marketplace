@@ -16,6 +16,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 
 import { BasemapSwitcher } from "@/components/ui/BasemapSwitcher";
 import { buildBasemapStyle } from "@/components/ui/basemaps";
+import type { BasemapId } from "@/components/ui/basemaps";
 import { useBasemap } from "@/components/ui/useBasemap";
 
 const KAZAKHSTAN_CENTER: [number, number] = [71.4, 51.1];
@@ -30,9 +31,20 @@ export interface MapPointPickerProps {
   onChange: (point: LngLat) => void;
   height?: number;
   hasError?: boolean;
+  /** Подложка — передавать вместе с onBasemapChange, если выбор должен
+   * пережить этот компонент (см. useBasemap.ts). Без обоих — своё состояние. */
+  basemap?: BasemapId;
+  onBasemapChange?: (id: BasemapId) => void;
 }
 
-export function MapPointPicker({ value, onChange, height = 320, hasError = false }: MapPointPickerProps) {
+export function MapPointPicker({
+  value,
+  onChange,
+  height = 320,
+  hasError = false,
+  basemap: controlledBasemap,
+  onBasemapChange,
+}: MapPointPickerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markerRef = useRef<maplibregl.Marker | null>(null);
@@ -45,7 +57,11 @@ export function MapPointPicker({ value, onChange, height = 320, hasError = false
     onChangeRef.current = onChange;
   });
   const [isLoaded, setIsLoaded] = useState(false);
-  const [basemap, setBasemap] = useBasemap(mapRef, isLoaded);
+  const [basemap, setBasemap] = useBasemap(
+    mapRef,
+    isLoaded,
+    controlledBasemap !== undefined && onBasemapChange ? { value: controlledBasemap, onChange: onBasemapChange } : undefined,
+  );
 
   useEffect(() => {
     if (!containerRef.current) return;

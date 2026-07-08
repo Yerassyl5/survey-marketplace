@@ -16,15 +16,22 @@
    парсится первым, Site создаётся уже с финальной геометрией одним вызовом
    createSite() — заглушки в принципе больше не существует.
 
-   Карта — условный рендер одного из двух ГОТОВЫХ компонентов, оба не
-   изменены: пока нет успешно распарсенного файла — MapPointPicker (ввод
-   клика); как только файл распарсен — SiteMap (только чтение, автозум по
-   геометрии). Если заданы и точка, и файл — при сабмите (resolveGeometry)
-   побеждает файл: он несёт точный контур, точка на карте лишь заменяется
-   картой из файла и в API не уходит.
+   Карта — условный рендер одного из двух компонентов: пока нет успешно
+   распарсенного файла — MapPointPicker (ввод клика); как только файл
+   распарсен — SiteMap (только чтение, автозум по геометрии). Если заданы и
+   точка, и файл — при сабмите (resolveGeometry) побеждает файл: он несёт
+   точный контур, точка на карте лишь заменяется картой из файла и в API
+   не уходит.
+
+   Подложка (схема/спутник) — состояние поднято сюда (basemap/setBasemap
+   ниже) и передаётся controlled-парой в оба компонента: они взаимоисключающие
+   ветки одного JSX-условия (разные React-деревья), собственный внутренний
+   стейт каждого из них не пережил бы переключение MapPointPicker → SiteMap
+   при появлении файла — пользователь выбрал бы «Спутник», а после автозума
+   по файлу подложка тихо откатывалась бы на «Схема».
    ──────────────────────────────────────────────────────────────────────── */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 import { FilePicker } from "@/components/ui/FilePicker";
@@ -32,6 +39,8 @@ import { FormField } from "@/components/ui/FormField";
 import { MapPointPicker } from "@/components/ui/MapPointPicker";
 import type { LngLat } from "@/components/ui/MapPointPicker";
 import { SiteMap } from "@/components/ui/SiteMap";
+import { DEFAULT_BASEMAP } from "@/components/ui/basemaps";
+import type { BasemapId } from "@/components/ui/basemaps";
 import { parseGeometryFile } from "@/lib/api/sites";
 import { ApiError } from "@/lib/api/types";
 
@@ -122,6 +131,10 @@ function MapLoadingPlaceholder({ id, "aria-describedby": describedBy }: MapLoadi
 }
 
 export function SiteFields({ value, onChange, errors }: SiteFieldsProps) {
+  // См. хедер-комментарий: подложка живёт здесь, а не в MapPointPicker/SiteMap,
+  // чтобы пережить переключение между ними.
+  const [basemap, setBasemap] = useState<BasemapId>(DEFAULT_BASEMAP);
+
   // onChange меняется на каждый рендер родителя, а эффект ниже реагирует
   // только на смену файла — держим актуальный value в ref (как onChangeRef в
   // MapPointPicker.tsx), чтобы async-колбэки parseGeometryFile() не затирали
@@ -185,9 +198,15 @@ export function SiteFields({ value, onChange, errors }: SiteFieldsProps) {
         {value.isParsingFile ? (
           <MapLoadingPlaceholder />
         ) : value.parsedFileGeometry ? (
-          <SiteMap geometry={value.parsedFileGeometry} />
+          <SiteMap geometry={value.parsedFileGeometry} basemap={basemap} onBasemapChange={setBasemap} />
         ) : (
-          <MapPointPicker value={value.point} onChange={(point) => patch({ point })} hasError={Boolean(errors.geometry)} />
+          <MapPointPicker
+            value={value.point}
+            onChange={(point) => patch({ point })}
+            hasError={Boolean(errors.geometry)}
+            basemap={basemap}
+            onBasemapChange={setBasemap}
+          />
         )}
       </FormField>
 

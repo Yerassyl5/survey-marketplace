@@ -16,6 +16,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 
 import { BasemapSwitcher } from "@/components/ui/BasemapSwitcher";
 import { buildBasemapStyle } from "@/components/ui/basemaps";
+import type { BasemapId } from "@/components/ui/basemaps";
 import { useBasemap } from "@/components/ui/useBasemap";
 
 // TODO(прод): тайлы OSM (tile.openstreetmap.org) напрямую — их usage policy
@@ -60,9 +61,13 @@ const placeholderStyle = (height: number): CSSProperties => ({
 export interface SiteMapProps {
   geometry: GeoJSON.Geometry | null;
   height?: number;
+  /** Подложка — передавать вместе с onBasemapChange, если выбор должен
+   * пережить этот компонент (см. useBasemap.ts). Без обоих — своё состояние. */
+  basemap?: BasemapId;
+  onBasemapChange?: (id: BasemapId) => void;
 }
 
-export function SiteMap({ geometry, height = 320 }: SiteMapProps) {
+export function SiteMap({ geometry, height = 320, basemap: controlledBasemap, onBasemapChange }: SiteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   // "Загружено" — производное сравнение с последней отрисованной геометрией,
@@ -82,7 +87,11 @@ export function SiteMap({ geometry, height = 320 }: SiteMapProps) {
   // есть (loadedGeometry/invalidGeometry устанавливаются синхронно внутри
   // него), без отдельного setState специально под это.
   const isStyleLoaded = loadedGeometry === geometry || isInvalidGeometry;
-  const [basemap, setBasemap] = useBasemap(mapRef, isStyleLoaded);
+  const [basemap, setBasemap] = useBasemap(
+    mapRef,
+    isStyleLoaded,
+    controlledBasemap !== undefined && onBasemapChange ? { value: controlledBasemap, onChange: onBasemapChange } : undefined,
+  );
 
   useEffect(() => {
     if (!containerRef.current || !geometry) return;
