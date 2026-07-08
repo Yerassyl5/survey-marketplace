@@ -14,20 +14,9 @@ import type { CSSProperties } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
-// Тот же стиль тайлов и оговорка про прод, что в SiteMap.tsx.
-const OSM_STYLE: maplibregl.StyleSpecification = {
-  version: 8,
-  sources: {
-    osm: {
-      type: "raster",
-      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-      tileSize: 256,
-      attribution:
-        '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>',
-    },
-  },
-  layers: [{ id: "osm", type: "raster", source: "osm" }],
-};
+import { BasemapSwitcher } from "@/components/ui/BasemapSwitcher";
+import { buildBasemapStyle } from "@/components/ui/basemaps";
+import { useBasemap } from "@/components/ui/useBasemap";
 
 const KAZAKHSTAN_CENTER: [number, number] = [71.4, 51.1];
 
@@ -56,6 +45,7 @@ export function MapPointPicker({ value, onChange, height = 320, hasError = false
     onChangeRef.current = onChange;
   });
   const [isLoaded, setIsLoaded] = useState(false);
+  const [basemap, setBasemap] = useBasemap(mapRef, isLoaded);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -63,7 +53,7 @@ export function MapPointPicker({ value, onChange, height = 320, hasError = false
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: OSM_STYLE,
+      style: buildBasemapStyle(),
       center: value ? [value.lng, value.lat] : KAZAKHSTAN_CENTER,
       zoom: value ? 13 : 4,
       attributionControl: { compact: true },
@@ -113,6 +103,7 @@ export function MapPointPicker({ value, onChange, height = 320, hasError = false
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={wrapperStyle}>
         <div ref={containerRef} style={{ width: "100%", height: "100%", cursor: "crosshair" }} />
+        <BasemapSwitcher value={basemap} onChange={setBasemap} />
         {!isLoaded && (
           <div
             style={{

@@ -14,23 +14,14 @@ import type { CSSProperties } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
+import { BasemapSwitcher } from "@/components/ui/BasemapSwitcher";
+import { buildBasemapStyle } from "@/components/ui/basemaps";
+import { useBasemap } from "@/components/ui/useBasemap";
+
 // TODO(прод): тайлы OSM (tile.openstreetmap.org) напрямую — их usage policy
 // не разрешает продакшн-трафик без отдельного разрешения. При выходе на
 // реальных пользователей переключить на self-hosted тайл-сервер или
 // платного провайдера (MapTiler и т.п.). Для dev/демо — ок, без внешних ключей.
-const OSM_STYLE: maplibregl.StyleSpecification = {
-  version: 8,
-  sources: {
-    osm: {
-      type: "raster",
-      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-      tileSize: 256,
-      attribution:
-        '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>',
-    },
-  },
-  layers: [{ id: "osm", type: "raster", source: "osm" }],
-};
 
 function collectCoordinates(coords: unknown, out: [number, number][]): void {
   if (Array.isArray(coords) && typeof coords[0] === "number") {
@@ -73,6 +64,7 @@ export interface SiteMapProps {
 
 export function SiteMap({ geometry, height = 320 }: SiteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
   // "Загружено" — производное сравнение с последней отрисованной геометрией,
   // не отдельный setState("loading") в теле эффекта (react-hooks/set-state-
   // in-effect): та же схема, что requestKey на /feed.
@@ -85,6 +77,12 @@ export function SiteMap({ geometry, height = 320 }: SiteMapProps) {
   const [invalidGeometry, setInvalidGeometry] = useState<GeoJSON.Geometry | null>(null);
   const isInvalidGeometry = geometry !== null && invalidGeometry === geometry;
   const isMapLoading = geometry !== null && loadedGeometry !== geometry && !isInvalidGeometry;
+  // Стиль (включая оба raster-слоя подложки) считается загруженным ровно
+  // тогда же, когда завершился обработчик 'load' — тем же признаком, что уже
+  // есть (loadedGeometry/invalidGeometry устанавливаются синхронно внутри
+  // него), без отдельного setState специально под это.
+  const isStyleLoaded = loadedGeometry === geometry || isInvalidGeometry;
+  const [basemap, setBasemap] = useBasemap(mapRef, isStyleLoaded);
 
   useEffect(() => {
     if (!containerRef.current || !geometry) return;
@@ -96,12 +94,13 @@ export function SiteMap({ geometry, height = 320 }: SiteMapProps) {
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: OSM_STYLE,
+      style: buildBasemapStyle(),
       center: [71.4, 51.1], // фолбэк-центр (Казахстан) — перезаписывается fitBounds ниже
       zoom: 3,
       attributionControl: { compact: true },
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+    mapRef.current = map;
 
     map.on("load", () => {
       if (cancelled) return;
@@ -154,6 +153,7 @@ export function SiteMap({ geometry, height = 320 }: SiteMapProps) {
 
     return () => {
       cancelled = true;
+      mapRef.current = null;
       map.remove();
     };
   }, [geometry]);
@@ -173,6 +173,7 @@ export function SiteMap({ geometry, height = 320 }: SiteMapProps) {
       }}
     >
       <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+      <BasemapSwitcher value={basemap} onChange={setBasemap} />
       {isInvalidGeometry && (
         <div
           style={{
