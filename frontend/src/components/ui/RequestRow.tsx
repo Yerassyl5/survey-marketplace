@@ -71,22 +71,7 @@ function DescriptionCell({ text }: { text: string }) {
     return <span style={{ color: "var(--ds-text-muted)" }}>—</span>;
   }
   return (
-    <span
-      title={text.length > DESCRIPTION_TRUNCATE_LENGTH ? text : undefined}
-      style={{
-        display: "inline-block",
-        maxWidth: 220,
-        padding: "2px 8px",
-        borderRadius: "var(--ds-r-sm)",
-        background: "var(--ds-select-bg)",
-        color: "var(--ds-select-text)",
-        fontSize: 12,
-        fontWeight: 600,
-        whiteSpace: "nowrap",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-      }}
-    >
+    <span title={text.length > DESCRIPTION_TRUNCATE_LENGTH ? text : undefined}>
       {truncateDescription(text)}
     </span>
   );
@@ -134,7 +119,7 @@ export function RequestRow({ request, index, canRespond = true }: RequestRowProp
       <td style={{ ...cellStyle, color: "var(--ds-text-sec)", whiteSpace: "nowrap" }}>
         {formatDate(request.created_at)}
       </td>
-      <td style={{ ...cellStyle, textAlign: "right" }}>
+      <td style={{ ...cellStyle, textAlign: "right", whiteSpace: "nowrap" }}>
         {!canRespond ? (
           <Link
             href={href}

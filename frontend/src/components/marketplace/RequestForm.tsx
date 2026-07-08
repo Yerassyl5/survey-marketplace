@@ -19,7 +19,6 @@ import { LocationCascadeSelect } from "@/components/ui/LocationCascadeSelect";
 import type { LocationValue } from "@/components/ui/LocationCascadeSelect";
 import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
-import { Input } from "@/components/ui/Input";
 import { WORK_TYPE_LABELS } from "@/components/ui/RequestRow";
 import { EMPTY_SITE_FIELDS, SiteFields, resolveGeometry, validateSiteFields } from "@/components/marketplace/SiteFields";
 import type { SiteFieldsState } from "@/components/marketplace/SiteFields";
@@ -33,7 +32,6 @@ import { createSite } from "@/lib/api/sites";
 import { ApiError } from "@/lib/api/types";
 
 const WORK_TYPES = Object.keys(WORK_TYPE_LABELS) as WorkType[];
-const CONTRACTOR_NOTE_MAX = 300;
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   const style: CSSProperties = {
@@ -62,7 +60,6 @@ export function RequestForm() {
   const [location, setLocation] = useState<LocationValue>({ cityId: null, districtId: null });
   const [description, setDescription] = useState("");
   const [tzFile, setTzFile] = useState<File | null>(null);
-  const [contractorNote, setContractorNote] = useState("");
   const [site, setSite] = useState<SiteFieldsState>(EMPTY_SITE_FIELDS);
 
   const [locations, setLocations] = useState<GeoLocations | null>(null);
@@ -124,7 +121,6 @@ export function RequestForm() {
         location_type: location.cityId != null ? "city" : "district",
         city_id: location.cityId,
         district_id: location.districtId,
-        contractor_note: contractorNote.trim() || undefined,
         tz_file: tzFile,
       });
 
@@ -200,21 +196,6 @@ export function RequestForm() {
             onChange={setTzFile}
             accept=".pdf,.doc,.docx"
             buttonLabel="Загрузить ТЗ"
-          />
-        </FormField>
-      </Section>
-
-      <Section title="Примечание для исполнителей">
-        <FormField
-          id="request-contractor-note"
-          label="Краткое примечание (необязательно)"
-          hint={`${contractorNote.length}/${CONTRACTOR_NOTE_MAX} — например «срочно, начать в течение 3 дней»`}
-        >
-          <Input
-            value={contractorNote}
-            onChange={(e) => setContractorNote(e.target.value.slice(0, CONTRACTOR_NOTE_MAX))}
-            maxLength={CONTRACTOR_NOTE_MAX}
-            placeholder="Оплата только наличными"
           />
         </FormField>
       </Section>
