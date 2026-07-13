@@ -29,7 +29,10 @@ class CustomerBriefSerializer(serializers.Serializer):
     organization_name = serializers.CharField(allow_blank=True)
 
 
-class BidSerializer(serializers.ModelSerializer):
+class BidCreateSerializer(serializers.ModelSerializer):
+    """POST — создание отклика исполнителем. considered_at/contractor_phone
+    сюда не добавляются: при создании considered_at всегда null, а телефон
+    (одностороннее раскрытие заказчику) исполнителю в принципе не отдаётся."""
     contractor = ContractorBriefSerializer(read_only=True)
     # Цена и срок — предложение исполнителя, обязательны при отклике (переопределяем
     # blank=True/null=True модели, которые нужны только для прямого создания в БД).
@@ -49,6 +52,39 @@ class BidSerializer(serializers.ModelSerializer):
             contractor_id=bid.contractor_id,
         ))
         return bid
+
+
+class BidOwnerSerializer(serializers.ModelSerializer):
+    """GET — исполнитель смотрит СВОИ отклики (MyBidListView, по всем заявкам).
+    considered_at виден (нужен для статуса «ожидает/рассматривают/выбран/не
+    выбран» в будущем кабинете исполнителя, PRODUCT_SPEC 1.4) — contractor_phone
+    здесь НЕТ вообще, поле не существует в этой структуре ответа: раскрытие
+    телефона одностороннее (только заказчику), это не гейт по значению, а
+    отсутствие поля как такового для этой аудитории."""
+    contractor = ContractorBriefSerializer(read_only=True)
+
+    class Meta:
+        model = Bid
+        fields = [
+            "id", "contractor", "comment", "price", "deadline_days",
+            "status", "considered_at", "created_at",
+        ]
+        read_only_fields = fields
+
+
+class BidCustomerSerializer(BidOwnerSerializer):
+    """GET — заказчик-владелец смотрит отклики на свою заявку. Плюс
+    contractor_phone — гейт на уровне сериализатора (SerializerMethodField),
+    не в UI/вьюхе: раскрывается только после Bid.considered_at (см.
+    ConsiderBidView), иначе None."""
+    contractor_phone = serializers.SerializerMethodField()
+
+    class Meta(BidOwnerSerializer.Meta):
+        fields = BidOwnerSerializer.Meta.fields + ["contractor_phone"]
+        read_only_fields = fields
+
+    def get_contractor_phone(self, obj):
+        return obj.contractor.phone if obj.considered_at else None
 
 
 class ResultFileSerializer(serializers.ModelSerializer):

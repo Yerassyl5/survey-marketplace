@@ -15,10 +15,12 @@ from apps.accounts.models import Role, VerificationStatus
 
 from common.events import publish
 
-from .events import DealCompleted, RequestAccepted, RequestAwarded, ResultReturned, ResultSubmitted
+from .events import BidConsidered, DealCompleted, RequestAccepted, RequestAwarded, ResultReturned, ResultSubmitted
 from .models import Bid, BidStatus, Request, RequestStatus, ResultFile
 from .serializers import (
-    BidSerializer,
+    BidCreateSerializer,
+    BidCustomerSerializer,
+    BidOwnerSerializer,
     RequestFeedDetailSerializer,
     RequestFeedForCustomerDetailSerializer,
     RequestFeedForCustomerSerializer,
@@ -63,6 +65,12 @@ REQUEST_SELECT_RELATED = (
 # разным местам кода недопустима: при первом отклике заявка пропадала бы из
 # ленты — сам факт исчезновения был бы каналом утечки.
 FEED_VISIBLE_STATUSES = (RequestStatus.OPEN, RequestStatus.UNDER_REVIEW)
+
+# Наём ещё не завершён — рассмотрение отклика (и раскрытие телефона) имеет
+# смысл только пока заявка не присвоена. Значения сейчас совпадают с
+# FEED_VISIBLE_STATUSES, но смысл разный (там — видимость в ленте, здесь —
+# допустимость рассмотрения), поэтому отдельная константа, не переиспользование.
+PRE_AWARD_STATUSES = (RequestStatus.OPEN, RequestStatus.UNDER_REVIEW)
 
 
 class RequestPagination(PageNumberPagination):
@@ -201,15 +209,20 @@ class RequestDetailView(generics.RetrieveAPIView):
 @extend_schema(tags=["marketplace"])
 class BidListCreateView(generics.ListCreateAPIView):
     """
-    GET заказчик (владелец) → список откликов с verification_status исполнителя.
-    POST исполнитель → откликнуться на открытую заявку.
+    GET заказчик (владелец) → список откликов, verification_status исполнителя,
+    considered_at и contractor_phone (гейт по considered_at) — BidCustomerSerializer.
+    POST исполнитель → откликнуться на открытую/рассматриваемую заявку —
+    BidCreateSerializer (без considered_at/contractor_phone).
     """
-    serializer_class = BidSerializer
-
     def get_permissions(self):
         if self.request.method == "POST":
             return [ContractorCanBid()]
         return [IsCustomer()]
+
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return BidCreateSerializer
+        return BidCustomerSerializer
 
     def get_queryset(self):
         # Проверяем, что текущий заказчик владеет заявкой
@@ -243,14 +256,49 @@ class BidListCreateView(generics.ListCreateAPIView):
 
 @extend_schema(tags=["marketplace"], summary="Свои отклики исполнителя")
 class MyBidListView(generics.ListAPIView):
-    """Отклики текущего исполнителя на все заявки."""
-    serializer_class = BidSerializer
+    """Отклики текущего исполнителя на все заявки. considered_at виден
+    (статус «рассматривают» в будущем кабинете), contractor_phone — нет:
+    раскрытие телефона одностороннее, только заказчику-владельцу заявки."""
+    serializer_class = BidOwnerSerializer
     permission_classes = [IsContractor]
 
     def get_queryset(self):
         return Bid.objects.select_related(
             "request", "contractor", "contractor__contractor_profile"
         ).filter(contractor=self.request.user)
+
+
+@extend_schema(tags=["marketplace"], summary="Заказчик рассматривает отклик (раскрытие телефона)")
+class ConsiderBidView(APIView):
+    """Заказчик отмечает отклик рассмотренным — фиксирует момент и в тот же
+    момент раскрывает телефон исполнителя (architecture.md §4.3). Идемпотентно:
+    повторный вызов не перезаписывает considered_at и не публикует BidConsidered
+    повторно (иначе будущее письмо «вас рассматривают» задублируется)."""
+    permission_classes = [IsCustomer]
+
+    def post(self, request, pk):
+        bid = Bid.objects.select_related("request", "contractor").filter(
+            pk=pk, request__customer=request.user
+        ).first()
+        if not bid:
+            return Response({"detail": "Отклик не найден или недоступен."}, status=status.HTTP_404_NOT_FOUND)
+        if bid.request.status not in PRE_AWARD_STATUSES:
+            return Response(
+                {"detail": "Заявка уже не принимает рассмотрение откликов — исполнитель уже выбран или сделка завершена."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        # Правило блока 1 без исключений: любой переход состояния — только
+        # через queryset .update(). considered_at__isnull=True в filter()
+        # одновременно даёт идемпотентность (повторный вызов — 0 строк).
+        newly_considered = Bid.objects.filter(pk=bid.pk, considered_at__isnull=True).update(
+            considered_at=timezone.now()
+        )
+        bid.refresh_from_db(fields=["considered_at"])
+        if newly_considered:
+            publish(BidConsidered(
+                request_id=bid.request_id, bid_id=bid.id, contractor_id=bid.contractor_id,
+            ))
+        return Response(BidCustomerSerializer(bid).data)
 
 
 @extend_schema(tags=["marketplace"], summary="Выбор исполнителя заказчиком", request={"application/json": {"type": "object", "properties": {"bid_id": {"type": "integer"}}}})

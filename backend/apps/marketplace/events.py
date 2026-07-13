@@ -19,6 +19,16 @@ class BidPlaced(DomainEvent):
 
 
 @dataclass(frozen=True)
+class BidConsidered(DomainEvent):
+    """Заказчик рассмотрел отклик — момент раскрытия телефона исполнителя
+    (architecture.md §4.3). Публикуется только при реальном переходе
+    considered_at NULL → значение, не при повторном вызове consider."""
+    request_id: int
+    bid_id: int
+    contractor_id: int
+
+
+@dataclass(frozen=True)
 class RequestAwarded(DomainEvent):
     request_id: int
     contractor_id: int

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.contrib.gis.geos import Point
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -13,6 +14,7 @@ from apps.accounts.models import ContractorProfile, Role, User, VerificationStat
 from apps.geo.models import City, District, Region
 from apps.sites.models import Site
 
+from .events import BidConsidered
 from .models import Bid, BidStatus, LocationType, Request, RequestStatus
 
 
@@ -422,6 +424,142 @@ class RequestLifecycleTest(TestCase):
         self.assertIn("рассмотр", r.data["detail"].lower())
         req.refresh_from_db()
         self.assertEqual(req.status, RequestStatus.UNDER_REVIEW)
+
+    # ------------------------------------------------------------------
+    # Рассмотрение отклика (consider) и раскрытие телефона (Блок 2)
+    # ------------------------------------------------------------------
+    def test_contractor_sees_exactly_own_bid_among_many(self):
+        """Пять исполнителей откликаются на одну заявку — каждый в своих
+        «моих откликах» видит РОВНО ОДИН объект (свой), не пять с урезанными
+        полями (иначе длина массива выдала бы число конкурентов — тот же канал
+        утечки, что и с updated_at)."""
+        req = self._create_request()
+        contractors = [make_contractor(f"rival{i}@test.kz") for i in range(5)]
+        for c in contractors:
+            Bid.objects.create(request=req, contractor=c, price=100000, deadline_days=10)
+        client = APIClient()
+        client.force_authenticate(contractors[0])
+        r = client.get("/api/marketplace/my-bids/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(r.data), 1)
+        self.assertEqual(r.data[0]["contractor"]["id"], contractors[0].id)
+
+    def test_customer_sees_all_bids_on_own_request(self):
+        req = self._create_request()
+        Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
+        second = make_contractor("second-viewer@test.kz")
+        Bid.objects.create(request=req, contractor=second, price=90000, deadline_days=8)
+        r = self.client_c.get(f"/api/marketplace/requests/{req.id}/bids/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(r.data), 2)
+
+    def test_customer_cannot_see_bids_on_foreign_request(self):
+        other_customer = make_customer("other-bids-owner@test.kz")
+        other_site = make_site(other_customer)
+        foreign_req = Request.objects.create(
+            site=other_site, customer=other_customer,
+            work_type="geology", description="чужая",
+            location_type=LocationType.CITY, city=self.city,
+        )
+        Bid.objects.create(request=foreign_req, contractor=self.contractor, price=100000, deadline_days=10)
+        r = self.client_c.get(f"/api/marketplace/requests/{foreign_req.id}/bids/")
+        self.assertEqual(r.status_code, 404)
+
+    def test_contractor_phone_hidden_before_consider(self):
+        req = self._create_request()
+        Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
+        r = self.client_c.get(f"/api/marketplace/requests/{req.id}/bids/")
+        self.assertEqual(r.status_code, 200)
+        self.assertIsNone(r.data[0]["contractor_phone"])
+        self.assertIsNone(r.data[0]["considered_at"])
+
+    def test_contractor_phone_revealed_after_consider(self):
+        req = self._create_request()
+        bid = Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
+        r = self.client_c.post(f"/api/marketplace/bids/{bid.id}/consider/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["contractor_phone"], self.contractor.phone)
+        self.assertIsNotNone(r.data["considered_at"])
+        r2 = self.client_c.get(f"/api/marketplace/requests/{req.id}/bids/")
+        self.assertEqual(r2.data[0]["contractor_phone"], self.contractor.phone)
+
+    def test_contractor_never_sees_own_phone_field(self):
+        """Одностороннее раскрытие — исполнитель не получает contractor_phone
+        даже в своих собственных откликах, независимо от considered_at."""
+        req = self._create_request()
+        bid = Bid.objects.create(
+            request=req, contractor=self.contractor, price=100000, deadline_days=10,
+            considered_at=timezone.now(),
+        )
+        r = self.client_e.get("/api/marketplace/my-bids/")
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("contractor_phone", r.data[0])
+        self.assertIsNotNone(r.data[0]["considered_at"])
+
+    def test_consider_foreign_request_not_found(self):
+        other_customer = make_customer("other-consider@test.kz")
+        other_site = make_site(other_customer)
+        foreign_req = Request.objects.create(
+            site=other_site, customer=other_customer,
+            work_type="geology", description="чужая",
+            location_type=LocationType.CITY, city=self.city,
+        )
+        bid = Bid.objects.create(request=foreign_req, contractor=self.contractor, price=100000, deadline_days=10)
+        r = self.client_c.post(f"/api/marketplace/bids/{bid.id}/consider/")
+        self.assertEqual(r.status_code, 404)
+        bid.refresh_from_db()
+        self.assertIsNone(bid.considered_at)
+
+    def test_consider_is_idempotent(self):
+        req = self._create_request()
+        bid = Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
+        r1 = self.client_c.post(f"/api/marketplace/bids/{bid.id}/consider/")
+        first_considered_at = r1.data["considered_at"]
+        r2 = self.client_c.post(f"/api/marketplace/bids/{bid.id}/consider/")
+        self.assertEqual(r2.status_code, 200)
+        self.assertEqual(r2.data["considered_at"], first_considered_at)
+
+    def test_consider_rejected_when_request_awarded(self):
+        req = self._create_request()
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.AWARDED)
+        bid = Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
+        r = self.client_c.post(f"/api/marketplace/bids/{bid.id}/consider/")
+        self.assertEqual(r.status_code, 409)
+        bid.refresh_from_db()
+        self.assertIsNone(bid.considered_at)
+
+    def test_consider_rejected_when_request_accepted(self):
+        req = self._create_request()
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.ACCEPTED)
+        bid = Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
+        r = self.client_c.post(f"/api/marketplace/bids/{bid.id}/consider/")
+        self.assertEqual(r.status_code, 409)
+        bid.refresh_from_db()
+        self.assertIsNone(bid.considered_at)
+
+    def test_consider_allowed_when_request_under_review(self):
+        """Типовой случай: заявка уже под review (есть отклики), заказчик
+        рассматривает ещё один/тот же отклик — должно работать (200)."""
+        req = self._create_request()
+        bid = Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.UNDER_REVIEW)
+        r = self.client_c.post(f"/api/marketplace/bids/{bid.id}/consider/")
+        self.assertEqual(r.status_code, 200)
+        self.assertIsNotNone(r.data["considered_at"])
+
+    @patch("apps.marketplace.views.publish")
+    def test_consider_publishes_event_once(self, mock_publish):
+        req = self._create_request()
+        bid = Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
+        self.client_c.post(f"/api/marketplace/bids/{bid.id}/consider/")
+        self.assertEqual(mock_publish.call_count, 1)
+        published = mock_publish.call_args[0][0]
+        self.assertIsInstance(published, BidConsidered)
+        self.assertEqual(published.bid_id, bid.id)
+        self.assertEqual(published.contractor_id, self.contractor.id)
+        # Повторный вызов — событие больше не публикуется (идемпотентность).
+        self.client_c.post(f"/api/marketplace/bids/{bid.id}/consider/")
+        self.assertEqual(mock_publish.call_count, 1)
 
     # ------------------------------------------------------------------
     # Полный цикл: award → submit → accept
