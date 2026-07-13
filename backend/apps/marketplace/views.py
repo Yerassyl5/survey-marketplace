@@ -57,6 +57,13 @@ REQUEST_SELECT_RELATED = (
     "city", "city__region", "district", "district__region",
 )
 
+# Единая точка входа исполнителя (лента, детали, отклик) + режим ?scope=feed
+# заказчика: заявка видна и доступна для отклика, пока не присвоена (awarded) —
+# architecture.md §4.3, инвариант №9. Раздельная фильтрация status=OPEN по
+# разным местам кода недопустима: при первом отклике заявка пропадала бы из
+# ленты — сам факт исчезновения был бы каналом утечки.
+FEED_VISIBLE_STATUSES = (RequestStatus.OPEN, RequestStatus.UNDER_REVIEW)
+
 
 class RequestPagination(PageNumberPagination):
     # Только лента заявок (шаг B) — остальные списки (отклики, мои отклики)
@@ -126,7 +133,7 @@ class RequestListCreateView(generics.ListCreateAPIView):
         # Открытая лента: исполнитель (как всегда) и заказчик с ?scope=feed
         # (инвариант: как только заявка awarded, она пропадает из ленты —
         # дальнейшие статусы видят только заказчик и выбранный исполнитель).
-        qs = qs.filter(status=RequestStatus.OPEN)
+        qs = qs.filter(status__in=FEED_VISIBLE_STATUSES)
         if user.role == Role.CONTRACTOR:
             qs = qs.annotate(
                 has_bid=Exists(Bid.objects.filter(request=OuterRef("pk"), contractor=user))
@@ -181,8 +188,8 @@ class RequestDetailView(generics.RetrieveAPIView):
         if user.role == Role.CUSTOMER:
             # Свои — в любом статусе; чужие — только открытые (та же общая
             # лента, что и на /feed?scope=feed).
-            return qs.filter(Q(customer=user) | Q(status=RequestStatus.OPEN))
-        return qs.filter(Q(status=RequestStatus.OPEN) | Q(assigned_contractor=user)).annotate(
+            return qs.filter(Q(customer=user) | Q(status__in=FEED_VISIBLE_STATUSES))
+        return qs.filter(Q(status__in=FEED_VISIBLE_STATUSES) | Q(assigned_contractor=user)).annotate(
             has_bid=Exists(Bid.objects.filter(request=OuterRef("pk"), contractor=user))
         )
 
@@ -213,7 +220,7 @@ class BidListCreateView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         request_obj = get_object_or_404(
-            Request, pk=self.kwargs["request_pk"], status=RequestStatus.OPEN
+            Request, pk=self.kwargs["request_pk"], status__in=FEED_VISIBLE_STATUSES
         )
         if Bid.objects.filter(request=request_obj, contractor=self.request.user).exists():
             from rest_framework.exceptions import ValidationError
@@ -222,6 +229,16 @@ class BidListCreateView(generics.ListCreateAPIView):
             # extractErrorMessage) ждёт объект с .detail и не находит сообщение.
             raise ValidationError({"detail": "Вы уже откликнулись на эту заявку."})
         serializer.save(request=request_obj, contractor=self.request.user)
+        # Автопереход open → under_review при первом отклике — ТОЛЬКО через
+        # queryset .update() (единое правило для любого изменения статуса,
+        # в миграциях и в рантайме без исключений): instance.save() молча
+        # трогает updated_at (auto_now=True), а фид отдаёт updated_at в JSON —
+        # сравнение created_at/updated_at выдало бы факт первого отклика без
+        # единого явного поля статуса (инвариант №9). Условие status=OPEN в
+        # filter() — идемпотентно и безопасно при гонке двух первых откликов.
+        Request.objects.filter(pk=request_obj.pk, status=RequestStatus.OPEN).update(
+            status=RequestStatus.UNDER_REVIEW
+        )
 
 
 @extend_schema(tags=["marketplace"], summary="Свои отклики исполнителя")
@@ -242,20 +259,27 @@ class AwardView(APIView):
     permission_classes = [IsCustomer]
 
     def post(self, request, pk):
-        req = Request.objects.filter(pk=pk, customer=request.user, status=RequestStatus.OPEN).first()
+        req = Request.objects.filter(
+            pk=pk, customer=request.user, status=RequestStatus.UNDER_REVIEW
+        ).first()
         if not req:
             return Response({"detail": "Заявка не найдена или недоступна."}, status=status.HTTP_404_NOT_FOUND)
         bid_id = request.data.get("bid_id")
         bid = Bid.objects.filter(pk=bid_id, request=req).first()
         if not bid:
             return Response({"detail": "Отклик не найден."}, status=status.HTTP_400_BAD_REQUEST)
-        req.status = RequestStatus.AWARDED
-        req.assigned_contractor = bid.contractor
-        req.save(update_fields=["status", "assigned_contractor", "updated_at"])
+        if bid.considered_at is None:
+            return Response(
+                {"detail": "Нельзя выбрать нерассмотренный отклик — сначала рассмотрите его."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        Request.objects.filter(pk=req.pk).update(
+            status=RequestStatus.AWARDED, assigned_contractor=bid.contractor
+        )
         Bid.objects.filter(request=req, pk=bid_id).update(status=BidStatus.SELECTED)
         Bid.objects.filter(request=req).exclude(pk=bid_id).update(status=BidStatus.REJECTED)
         publish(RequestAwarded(request_id=req.id, contractor_id=bid.contractor_id))
-        return Response({"status": req.status})
+        return Response({"status": RequestStatus.AWARDED})
 
 
 @extend_schema(
@@ -295,11 +319,12 @@ class SubmitResultView(APIView):
             )
         for f in files:
             ResultFile.objects.create(request=req, file=f, original_name=f.name)
-        req.result_note = request.data.get("result_note", req.result_note)
-        req.status = RequestStatus.RESULT_SUBMITTED
-        req.save(update_fields=["status", "result_note", "updated_at"])
+        Request.objects.filter(pk=req.pk).update(
+            status=RequestStatus.RESULT_SUBMITTED,
+            result_note=request.data.get("result_note", req.result_note),
+        )
         publish(ResultSubmitted(request_id=req.id))
-        return Response({"status": req.status})
+        return Response({"status": RequestStatus.RESULT_SUBMITTED})
 
 
 @extend_schema(tags=["marketplace"], summary="Приём результата заказчиком")
@@ -313,11 +338,10 @@ class AcceptView(APIView):
         ).first()
         if not req:
             return Response({"detail": "Заявка не найдена или недоступна."}, status=status.HTTP_404_NOT_FOUND)
-        req.status = RequestStatus.ACCEPTED
-        req.save(update_fields=["status", "updated_at"])
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.ACCEPTED)
         publish(RequestAccepted(request_id=req.id))
         publish(DealCompleted(request_id=req.id))
-        return Response({"status": req.status})
+        return Response({"status": RequestStatus.ACCEPTED})
 
 
 @extend_schema(tags=["marketplace"], summary="Возврат результата на доработку")
@@ -331,7 +355,6 @@ class ReturnView(APIView):
         ).first()
         if not req:
             return Response({"detail": "Заявка не найдена или недоступна."}, status=status.HTTP_404_NOT_FOUND)
-        req.status = RequestStatus.AWARDED
-        req.save(update_fields=["status", "updated_at"])
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.AWARDED)
         publish(ResultReturned(request_id=req.id))
-        return Response({"status": req.status})
+        return Response({"status": RequestStatus.AWARDED})

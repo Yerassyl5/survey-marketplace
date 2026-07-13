@@ -374,11 +374,71 @@ class RequestLifecycleTest(TestCase):
         self.assertEqual(r.status_code, 403)
 
     # ------------------------------------------------------------------
+    # Рассмотрение и автопереход open → under_review (Блок 1)
+    # ------------------------------------------------------------------
+    def test_first_bid_moves_request_to_under_review(self):
+        req = self._create_request()
+        r = self.client_e.post(f"/api/marketplace/requests/{req.id}/bids/", self._bid_payload(), format="json")
+        self.assertEqual(r.status_code, 201)
+        req.refresh_from_db()
+        self.assertEqual(req.status, RequestStatus.UNDER_REVIEW)
+
+    def test_first_bid_does_not_change_updated_at(self):
+        """Инвариант №9: переход статуса — через .update(), не .save(), иначе
+        auto_now тронул бы updated_at и дал бы утечку через фид-сериализатор."""
+        req = self._create_request()
+        original_updated_at = req.updated_at
+        self.client_e.post(f"/api/marketplace/requests/{req.id}/bids/", self._bid_payload(), format="json")
+        req.refresh_from_db()
+        self.assertEqual(req.status, RequestStatus.UNDER_REVIEW)
+        self.assertEqual(req.updated_at, original_updated_at)
+
+    def test_under_review_request_still_visible_in_contractor_feed(self):
+        """FEED_VISIBLE_STATUSES = (open, under_review) — заявка не пропадает
+        из ленты при первом отклике; status/updated_at по-прежнему не отдаются."""
+        req = self._create_request()
+        self.client_e.post(f"/api/marketplace/requests/{req.id}/bids/", self._bid_payload(), format="json")
+        r = self.client_e.get("/api/marketplace/requests/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["count"], 1)
+        self.assertNotIn("status", r.data["results"][0])
+        self.assertNotIn("updated_at", r.data["results"][0])
+
+    def test_second_contractor_can_bid_after_first(self):
+        req = self._create_request()
+        self.client_e.post(f"/api/marketplace/requests/{req.id}/bids/", self._bid_payload(), format="json")
+        second = make_contractor("second-bidder@test.kz")
+        client2 = APIClient()
+        client2.force_authenticate(second)
+        r = client2.post(f"/api/marketplace/requests/{req.id}/bids/", self._bid_payload(), format="json")
+        self.assertEqual(r.status_code, 201)
+
+    def test_award_rejects_unconsidered_bid(self):
+        req = self._create_request()
+        bid = Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.UNDER_REVIEW)
+        r = self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": bid.id}, format="json")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("рассмотр", r.data["detail"].lower())
+        req.refresh_from_db()
+        self.assertEqual(req.status, RequestStatus.UNDER_REVIEW)
+
+    # ------------------------------------------------------------------
     # Полный цикл: award → submit → accept
     # ------------------------------------------------------------------
     def _setup_bid(self):
+        """Заявка с одним откликом, УЖЕ рассмотренным заказчиком (considered_at
+        проставлен напрямую через ORM — эндпоинта «рассмотреть» пока нет, это
+        следующий блок). Award теперь требует под_review + рассмотренный отклик,
+        поэтому фикстура для тестов ниже по циклу (submit/accept/return) должна
+        сама выполнять оба условия, а не полагаться на старое поведение."""
         req = self._create_request()
-        bid = Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
+        bid = Bid.objects.create(
+            request=req, contractor=self.contractor, price=100000, deadline_days=10,
+            considered_at=timezone.now(),
+        )
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.UNDER_REVIEW)
+        req.refresh_from_db()
         return req, bid
 
     def test_award(self):

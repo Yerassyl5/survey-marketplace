@@ -152,7 +152,14 @@ class RequestFeedSerializer(serializers.ModelSerializer):
             "id", "site", "work_type", "description", "tz_file",
             "geometry", "location_type", "city", "district", "location_display",
             "contractor_note",
-            "customer", "has_bid", "created_at", "updated_at",
+            # updated_at НЕ отдаётся исполнителю (и заказчику в ?scope=feed) —
+            # инвариант №9: auto_now на Request позволил бы сравнить created_at/
+            # updated_at и вычислить факт первого отклика без единого явного
+            # поля статуса. Подтверждено: RequestFeedSerializer — плоский
+            # ModelSerializer (не GeoFeatureModelSerializer, тот только у
+            # sites.SiteSerializer), Meta.fields — единственный источник полей,
+            # ничего не подставляется обратно.
+            "customer", "has_bid", "created_at",
         ]
         read_only_fields = fields
 

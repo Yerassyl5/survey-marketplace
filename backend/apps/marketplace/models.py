@@ -17,7 +17,8 @@ class WorkType(models.TextChoices):
 
 class RequestStatus(models.TextChoices):
     OPEN = "open", "Открыта"
-    AWARDED = "awarded", "Исполнитель выбран"
+    UNDER_REVIEW = "under_review", "Рассмотрение исполнителей"
+    AWARDED = "awarded", "В работе"
     RESULT_SUBMITTED = "result_submitted", "Результат сдан"
     ACCEPTED = "accepted", "Принято заказчиком"
 
@@ -116,6 +117,10 @@ class Bid(models.Model):
         choices=BidStatus.choices,
         default=BidStatus.PENDING,
     )
+    # Метка «заказчик рассмотрел отклик» — одновременно момент раскрытия телефона
+    # исполнителя (architecture.md §4.3). Независима от RequestStatus: у заявки
+    # могут быть и рассмотренные, и нерассмотренные отклики одновременно.
+    considered_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
