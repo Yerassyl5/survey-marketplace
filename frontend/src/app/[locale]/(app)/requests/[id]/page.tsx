@@ -18,6 +18,7 @@ import { Alert } from "@/components/ui/Alert";
 import { formatDate, WORK_TYPE_LABELS, WorkTypeBadge } from "@/components/ui/RequestRow";
 import { SiteMap } from "@/components/ui/SiteMap";
 import { BidForm } from "@/components/marketplace/BidForm";
+import { BidsPanel } from "@/components/marketplace/BidsPanel";
 import { useAuth } from "@/contexts/AuthContext";
 import { Link, useRouter as useI18nRouter } from "@/i18n/navigation";
 import { AuthRequiredError } from "@/lib/api/client";
@@ -200,6 +201,7 @@ function DetailContent({
   isVerified,
   onBidSuccess,
   showBidSidebar,
+  onAwarded,
 }: {
   request: FeedRequestDetail;
   isVerified: boolean;
@@ -207,9 +209,16 @@ function DetailContent({
   /** Сайдбар отклика — только для роли contractor; заказчик (свою или чужую
    * заявку) видит только просмотр, без формы отклика. */
   showBidSidebar: boolean;
+  onAwarded: (contractorId: number) => void;
 }) {
   // customer === null — обезличенная чужая заявка (заказчик листает общую ленту).
   const customerLabel = request.customer ? request.customer.organization_name || request.customer.full_name : "Заказчик";
+  // "status" в ответе есть ТОЛЬКО у RequestSerializer — то есть только когда
+  // заказчик смотрит СВОЮ заявку (см. комментарий у FeedRequestDetail в
+  // marketplace.ts). У исполнителя и у заказчика в чужой заявке через
+  // ?scope=feed этого поля нет вообще (инвариант №9) — отдельного признака
+  // is_owner заводить не нужно.
+  const isOwnerView = request.status !== undefined;
   // Уточняющая геометрия ЗАЯВКИ (необязательна) приоритетнее геометрии
   // объекта — так и задумано моделью (Request.geometry: "участок уже есть
   // на объекте (Site)", это поле только для уточнений). Оба поля теперь
@@ -318,6 +327,15 @@ function DetailContent({
           </div>
         )}
       </div>
+
+      {isOwnerView && (
+        <BidsPanel
+          requestId={request.id}
+          requestStatus={request.status!}
+          bidsCount={request.bids_count ?? 0}
+          onAwarded={onAwarded}
+        />
+      )}
     </div>
   );
 }
@@ -385,6 +403,14 @@ export default function RequestDetailPage() {
     );
   }
 
+  function handleAwarded(contractorId: number) {
+    setResult((prev) =>
+      prev && prev.status === "success"
+        ? { ...prev, data: { ...prev.data, status: "awarded", assigned_contractor: contractorId } }
+        : prev,
+    );
+  }
+
   if (!user || !isAllowedRole) {
     return null;
   }
@@ -403,6 +429,7 @@ export default function RequestDetailPage() {
           isVerified={user.verification_status === "verified"}
           onBidSuccess={handleBidSuccess}
           showBidSidebar={isContractor}
+          onAwarded={handleAwarded}
         />
       ) : null}
     </div>

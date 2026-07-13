@@ -21,9 +21,19 @@ export const WORK_TYPE_LABELS: Record<WorkType, string> = {
   other: "Прочее",
 };
 
-/** marketplace.RequestStatus (backend) → метка StatusBadge. */
+/** marketplace.RequestStatus (backend) → метка StatusBadge. Видит ТОЛЬКО
+ * заказчик-владелец заявки: исполнителю Request.status не отдаётся вообще
+ * ни в одном сериализаторе (инвариант №9, architecture.md §4.3) — он видит
+ * статус СВОЕГО ОТКЛИКА (ожидает/рассматривают/выбран/не выбран, из
+ * considered_at + Bid.status), а не статус заявки. Поэтому второго набора
+ * лейблов «для исполнителя» не существует и заводить его не нужно. */
 export const STATUS_LABELS: Record<MyRequest["status"], StatusLabel> = {
   open: "Новая",
+  // under_review наступает АВТОМАТИЧЕСКИ при первом отклике, не по действию
+  // заказчика — он мог даже не открывать заявку. «Ждёт рассмотрения» описывает
+  // и текущее состояние, и то, что требуется от заказчика; «Рассмотрение
+  // исполнителей» описывало бы намерение, а не факт (обсуждалось и отклонено).
+  under_review: "Ждёт рассмотрения",
   awarded: "В работе",
   result_submitted: "Результат сдан",
   accepted: "Принята",

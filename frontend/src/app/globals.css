@@ -83,6 +83,8 @@
   --ds-active-text:   #166534;
   --ds-select-bg:     #FEF3C7;
   --ds-select-text:   #92400E;
+  --ds-review-bg:     #F5F3FF;
+  --ds-review-text:   #6D28D9;
   --ds-done-bg:       #F1F5F9;
   --ds-done-text:     #475569;
 
@@ -185,6 +187,8 @@
   --ds-active-text:#86EFAC;
   --ds-select-bg:  #451A03;
   --ds-select-text:#FCD34D;
+  --ds-review-bg:  #3B0764;
+  --ds-review-text:#C4B5FD;
   --ds-done-bg:    #1E293B;
   --ds-done-text:  #94A3B8;
 

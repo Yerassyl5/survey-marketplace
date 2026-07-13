@@ -2,9 +2,9 @@
 
 /* ────────────────────────────────────────────────────────────────────────
    /ru/requests/my — «Мои заявки», кабинет заказчика (заменяет прежнюю
-   заглушку /dashboard). Список СВОИХ заявок, без клика на строку —
-   просмотр откликов и выбор исполнителя (award) — следующий блок, ссылку
-   туда сознательно не делаем, чтобы не оставлять полуработающий переход.
+   заглушку /dashboard). Список СВОИХ заявок; строка кликабельна → страница
+   заявки (/requests/{id}), там же теперь просмотр откликов и выбор
+   исполнителя (award) — см. BidsPanel.
    Гвард — тем же паттерном, что на /feed: исполнитель редиректится на
    /feed (это экран заказчика).
    ──────────────────────────────────────────────────────────────────────── */
@@ -235,7 +235,13 @@ function MyRequestsContent() {
         <>
           <TableShell>
             {successData.results.map((r, i) => (
-              <tr key={r.id}>
+              <tr
+                key={r.id}
+                onClick={() => i18nRouter.push(`/requests/${r.id}`)}
+                style={{ transition: "background 150ms", cursor: "pointer" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--ds-blue-xlight)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+              >
                 <td style={{ ...cellStyle, color: "var(--ds-text-muted)" }}>{(page - 1) * PAGE_SIZE + i + 1}</td>
                 <td style={cellStyle}>{WORK_TYPE_LABELS[r.work_type]}</td>
                 <td style={cellStyle}>{r.location_display}</td>

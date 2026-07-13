@@ -62,6 +62,16 @@ export interface FeedRequest {
  * серализатора обязаны его включать (см. комментарий у FeedRequest.geometry). */
 export interface FeedRequestDetail extends FeedRequest {
   site_geometry?: GeoJSON.Geometry | null;
+  /** Эти три поля отдаёт ТОЛЬКО RequestSerializer — то есть только когда
+   * заказчик смотрит СВОЮ заявку (инвариант №9: у контрактора и у заказчика
+   * в чужой заявке через ?scope=feed статус не отдаётся вообще, чтобы не
+   * протекала информация о ходе рассмотрения). Поэтому "status" in response
+   * — уже готовый признак «это владелец, полный вид», отдельного поля вроде
+   * is_owner заводить не нужно. bids_count/assigned_contractor — из той же
+   * RequestSerializer.Meta.fields (см. backend/apps/marketplace/serializers.py). */
+  status?: MyRequest["status"];
+  bids_count?: number;
+  assigned_contractor?: number | null;
 }
 
 export interface PaginatedResponse<T> {
@@ -132,6 +142,35 @@ export async function createBid(requestId: number, payload: BidPayload): Promise
   });
 }
 
+/** Отклик для ЗАКАЗЧИКА-владельца заявки — BidCustomerSerializer (backend
+ * apps/marketplace/serializers.py). considered_at/contractor_phone здесь
+ * есть; contractor_phone == null, пока отклик не рассмотрен (гейт на
+ * бэкенде, во view/сериализаторе, не только в UI). */
+export interface BidWithConsideration extends Bid {
+  considered_at: string | null;
+  contractor_phone: string | null;
+}
+
+/** GET .../bids/ у BidListCreateView не задаёт pagination_class и не
+ * подпадает под глобальный DEFAULT_PAGINATION_CLASS (в settings.py такой
+ * ключ вообще отсутствует) — отдаёт голый массив, не {results: [...]}. */
+export async function getBids(requestId: number): Promise<BidWithConsideration[]> {
+  return apiFetch<BidWithConsideration[]>(`/marketplace/requests/${requestId}/bids/`);
+}
+
+export async function considerBid(bidId: number): Promise<BidWithConsideration> {
+  return apiFetch<BidWithConsideration>(`/marketplace/bids/${bidId}/consider/`, {
+    method: "POST",
+  });
+}
+
+export async function awardBid(requestId: number, bidId: number): Promise<{ status: string }> {
+  return apiFetch<{ status: string }>(`/marketplace/requests/${requestId}/award/`, {
+    method: "POST",
+    body: JSON.stringify({ bid_id: bidId }),
+  });
+}
+
 /** Заявка заказчика (форма создания) — multipart из-за tz_file. */
 export interface CreateRequestPayload {
   site: number;
@@ -157,7 +196,7 @@ export interface MyRequest {
   district: number | null;
   location_display: string;
   contractor_note: string;
-  status: "open" | "awarded" | "result_submitted" | "accepted";
+  status: "open" | "under_review" | "awarded" | "result_submitted" | "accepted";
   assigned_contractor: number | null;
   bids_count: number;
   created_at: string;
