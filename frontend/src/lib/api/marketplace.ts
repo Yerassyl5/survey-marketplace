@@ -50,6 +50,21 @@ export interface FeedRequest {
   updated_at: string;
 }
 
+/** Собственный отклик исполнителя на ЭТУ заявку — MyBidBriefSerializer
+ * на бэкенде (backend/apps/marketplace/serializers.py), встроен в ответ
+ * RequestFeedDetailSerializer.to_representation(). status + considered_at
+ * достаточны, чтобы построить все пять честных состояний на странице
+ * заявки (MyBidStatusPanel) БЕЗ обращения к Request.status. */
+export interface MyBidBrief {
+  id: number;
+  price: string;
+  deadline_days: number;
+  comment: string;
+  created_at: string;
+  status: "pending" | "selected" | "rejected";
+  considered_at: string | null;
+}
+
 /** Детали заявки — GET /marketplace/requests/{id}/, только GET одной заявки,
  * не список. Один эндпоинт, но РАЗНЫЕ Django-сериализаторы по роли/владению
  * заявкой (RequestSerializer — заказчик, своя; RequestFeedDetailSerializer —
@@ -72,6 +87,9 @@ export interface FeedRequestDetail extends FeedRequest {
   status?: MyRequest["status"];
   bids_count?: number;
   assigned_contractor?: number | null;
+  /** Только для роли contractor, только если он откликался — см.
+   * MyBidBrief. Отсутствует у заказчика и у исполнителя без отклика. */
+  my_bid?: MyBidBrief;
 }
 
 export interface PaginatedResponse<T> {
@@ -160,6 +178,15 @@ export async function getBids(requestId: number): Promise<BidWithConsideration[]
 
 export async function considerBid(bidId: number): Promise<BidWithConsideration> {
   return apiFetch<BidWithConsideration>(`/marketplace/bids/${bidId}/consider/`, {
+    method: "POST",
+  });
+}
+
+/** WithdrawBidView отдаёт 200 без тела (Content-Length: 0, без Content-Type
+ * вообще — проверено curl -i) — apiFetch не пытается парсить JSON в этом
+ * случае, возвращает null; Promise<void> просто игнорирует значение. */
+export async function withdrawBid(bidId: number): Promise<void> {
+  await apiFetch<void>(`/marketplace/bids/${bidId}/withdraw/`, {
     method: "POST",
   });
 }

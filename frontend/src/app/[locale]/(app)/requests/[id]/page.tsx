@@ -19,11 +19,12 @@ import { formatDate, WORK_TYPE_LABELS, WorkTypeBadge } from "@/components/ui/Req
 import { SiteMap } from "@/components/ui/SiteMap";
 import { BidForm } from "@/components/marketplace/BidForm";
 import { BidsPanel } from "@/components/marketplace/BidsPanel";
+import { MyBidStatusPanel } from "@/components/marketplace/MyBidStatusPanel";
 import { useAuth } from "@/contexts/AuthContext";
 import { Link, useRouter as useI18nRouter } from "@/i18n/navigation";
 import { AuthRequiredError } from "@/lib/api/client";
 import { getRequestDetail } from "@/lib/api/marketplace";
-import type { FeedRequestDetail } from "@/lib/api/marketplace";
+import type { Bid, FeedRequestDetail } from "@/lib/api/marketplace";
 import { ApiError } from "@/lib/api/types";
 
 /* ── Карточка-обёртка (левая колонка) ─────────────────────────────────── */
@@ -171,45 +172,22 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
 }
 
 /* ── Содержимое заявки ────────────────────────────────────────────────── */
-function RespondedBadge() {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "16px 20px",
-        background: "var(--ds-active-bg)",
-        border: "1px solid var(--ds-border)",
-        borderRadius: "var(--ds-r-lg)",
-        color: "var(--ds-active-text)",
-        fontFamily: "var(--ds-font-body)",
-        fontSize: 14,
-        fontWeight: 600,
-      }}
-    >
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <polyline points="20 6 9 17 4 12" />
-      </svg>
-      Вы откликнулись на эту заявку
-    </div>
-  );
-}
-
 function DetailContent({
   request,
   isVerified,
   onBidSuccess,
   showBidSidebar,
   onAwarded,
+  onWithdrawSuccess,
 }: {
   request: FeedRequestDetail;
   isVerified: boolean;
-  onBidSuccess: () => void;
+  onBidSuccess: (bid: Bid) => void;
   /** Сайдбар отклика — только для роли contractor; заказчик (свою или чужую
    * заявку) видит только просмотр, без формы отклика. */
   showBidSidebar: boolean;
   onAwarded: (contractorId: number) => void;
+  onWithdrawSuccess: () => void;
 }) {
   // customer === null — обезличенная чужая заявка (заказчик листает общую ленту).
   const customerLabel = request.customer ? request.customer.organization_name || request.customer.full_name : "Заказчик";
@@ -319,8 +297,8 @@ function DetailContent({
 
         {showBidSidebar && (
           <div style={{ flex: "1 1 320px" }}>
-            {request.has_bid ? (
-              <RespondedBadge />
+            {request.my_bid ? (
+              <MyBidStatusPanel bid={request.my_bid} onWithdrawSuccess={onWithdrawSuccess} />
             ) : (
               <BidForm requestId={request.id} isVerified={isVerified} onSuccess={onBidSuccess} />
             )}
@@ -397,9 +375,40 @@ export default function RequestDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- requestKey уже включает все зависимые значения
   }, [isAllowedRole, requestKey, i18nRouter]);
 
-  function handleBidSuccess() {
+  function handleBidSuccess(bid: Bid) {
+    // createBid() (POST) не отдаёт considered_at — у свежесозданного отклика
+    // оно всегда null, безопасно проставить явно. has_bid и my_bid обновляем
+    // ВМЕСТЕ: has_bid — реальное поле API-контракта (не выдумка страницы),
+    // если оставить его как было, локальный result.data разойдётся с тем,
+    // что вернул бы свежий GET — тот же принцип, что и bidsCount/bids.length
+    // в BidsPanel.
     setResult((prev) =>
-      prev && prev.status === "success" ? { ...prev, data: { ...prev.data, has_bid: true } } : prev,
+      prev && prev.status === "success"
+        ? {
+            ...prev,
+            data: {
+              ...prev.data,
+              has_bid: true,
+              my_bid: {
+                id: bid.id,
+                price: bid.price,
+                deadline_days: bid.deadline_days,
+                comment: bid.comment,
+                created_at: bid.created_at,
+                status: bid.status,
+                considered_at: null,
+              },
+            },
+          }
+        : prev,
+    );
+  }
+
+  function handleWithdrawSuccess() {
+    setResult((prev) =>
+      prev && prev.status === "success"
+        ? { ...prev, data: { ...prev.data, has_bid: false, my_bid: undefined } }
+        : prev,
     );
   }
 
@@ -430,6 +439,7 @@ export default function RequestDetailPage() {
           onBidSuccess={handleBidSuccess}
           showBidSidebar={isContractor}
           onAwarded={handleAwarded}
+          onWithdrawSuccess={handleWithdrawSuccess}
         />
       ) : null}
     </div>
