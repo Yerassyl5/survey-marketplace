@@ -76,7 +76,7 @@ function truncateDescription(text: string): string {
  * текстом, если он не поместился. (2026-07-07: раньше эта колонка показывала
  * contractor_note — поле в модели/API не менялось, поменялось только то, что
  * выводится в этой ячейке таблицы.) */
-function DescriptionCell({ text }: { text: string }) {
+export function DescriptionCell({ text }: { text: string }) {
   if (!text) {
     return <span style={{ color: "var(--ds-text-muted)" }}>—</span>;
   }

@@ -93,7 +93,7 @@ const DEFAULT_PUBLIC_LINKS: AppNavLink[] = [
 
 const DEFAULT_APP_LINKS: AppNavLink[] = [
   { label: "Лента заявок", href: "/ru/feed" },
-  { label: "Мои отклики", href: "#" },
+  { label: "Мои отклики", href: "/ru/requests/my-bids" },
   { label: "Профиль", href: "#" },
 ];
 

@@ -164,6 +164,29 @@ export async function considerBid(bidId: number): Promise<BidWithConsideration> 
   });
 }
 
+/** Заявка, на которую сделан отклик — контекст для «Моих откликов»
+ * (BidRequestBriefSerializer на бэкенде). Инвариант №9: НЕ включает
+ * status/bids_count — исполнитель видит статус СВОЕГО отклика (см. MyBid),
+ * не заявки. */
+export interface BidRequestBrief {
+  id: number;
+  work_type: WorkType;
+  location_display: string;
+  description: string;
+}
+
+/** GET /marketplace/my-bids/ — «Мои отклики» (BidOwnerSerializer). contractor
+ * унаследован от Bid (это сам исполнитель, смотрящий на себя) — поле
+ * присутствует в ответе, но в вёрстке «Моих откликов» не используется. */
+export interface MyBid extends Bid {
+  considered_at: string | null;
+  request: BidRequestBrief;
+}
+
+export async function getMyBids(): Promise<MyBid[]> {
+  return apiFetch<MyBid[]>("/marketplace/my-bids/");
+}
+
 export async function awardBid(requestId: number, bidId: number): Promise<{ status: string }> {
   return apiFetch<{ status: string }>(`/marketplace/requests/${requestId}/award/`, {
     method: "POST",

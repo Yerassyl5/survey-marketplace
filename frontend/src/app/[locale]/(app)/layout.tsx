@@ -27,7 +27,7 @@ const NAV_LINKS: Record<"customer" | "contractor", AppNavLink[]> = {
   ],
   contractor: [
     { label: "Лента заявок", href: "/ru/feed" },
-    { label: "Мои отклики", href: "#" },
+    { label: "Мои отклики", href: "/ru/requests/my-bids" },
     { label: "Профиль", href: "#" },
   ],
 };
@@ -53,11 +53,15 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const { user, isLoading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  // "/requests/my-bids".startsWith("/requests/my") тоже true — префиксом не
+  // разойтись, нужна граница сегмента (/requests/my либо /requests/my/...).
   const activeLink = pathname.startsWith("/feed")
     ? "Лента заявок"
-    : pathname.startsWith("/requests/my")
+    : pathname === "/requests/my" || pathname.startsWith("/requests/my/")
       ? "Мои заявки"
-      : undefined;
+      : pathname.startsWith("/requests/my-bids")
+        ? "Мои отклики"
+        : undefined;
 
   useEffect(() => {
     if (!isLoading && !user) {
