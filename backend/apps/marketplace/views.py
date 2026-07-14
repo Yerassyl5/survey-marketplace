@@ -21,6 +21,7 @@ from .serializers import (
     BidCreateSerializer,
     BidCustomerSerializer,
     BidOwnerSerializer,
+    MyAwardedBidSerializer,
     RequestFeedDetailSerializer,
     RequestFeedForCustomerDetailSerializer,
     RequestFeedForCustomerSerializer,
@@ -254,6 +255,19 @@ class BidListCreateView(generics.ListCreateAPIView):
         )
 
 
+# request__city/request__district/request__district__region — иначе
+# BidRequestBriefSerializer.get_location_display() (Request.location_label)
+# даёт N+1 на каждый отклик: CITY трогает request.city, DISTRICT —
+# request.district И request.district.region. Найдено и проверено
+# assertNumQueries на MyBidListView (test_my_bids_location_display_does_not_n_plus_one),
+# тот же select_related нужен MyAwardedListView по той же причине — общая
+# константа, не дублирование списком в двух местах.
+BID_REQUEST_SELECT_RELATED = (
+    "request", "request__city", "request__district", "request__district__region",
+    "contractor", "contractor__contractor_profile",
+)
+
+
 @extend_schema(tags=["marketplace"], summary="Свои отклики исполнителя")
 class MyBidListView(generics.ListAPIView):
     """Отклики текущего исполнителя на все заявки. considered_at виден
@@ -263,15 +277,25 @@ class MyBidListView(generics.ListAPIView):
     permission_classes = [IsContractor]
 
     def get_queryset(self):
-        # request__city/request__district/request__district__region — иначе
-        # BidRequestBriefSerializer.get_location_display() (Request.location_label)
-        # даёт N+1 на каждый отклик: CITY трогает request.city, DISTRICT —
-        # request.district И request.district.region. Найдено и проверено
-        # assertNumQueries (test_my_bids_location_display_does_not_n_plus_one).
-        return Bid.objects.select_related(
-            "request", "request__city", "request__district", "request__district__region",
-            "contractor", "contractor__contractor_profile",
-        ).filter(contractor=self.request.user)
+        return Bid.objects.select_related(*BID_REQUEST_SELECT_RELATED).filter(
+            contractor=self.request.user
+        )
+
+
+@extend_schema(tags=["marketplace"], summary="Заявки, которые исполнитель выиграл (в работе и выполненные)")
+class MyAwardedListView(generics.ListAPIView):
+    """«В работе и выполненные» (architecture.md §4.3, PRODUCT_SPEC 1.4) —
+    раздельный от «Моих откликов» раздел кабинета исполнителя. Фильтр —
+    Bid.status=SELECTED, НЕ Request.assigned_contractor напрямую (решение
+    спеки): показываем только заявки, где сам отклик выбран, независимо от
+    статуса откликов на другие заявки этого исполнителя."""
+    serializer_class = MyAwardedBidSerializer
+    permission_classes = [IsContractor]
+
+    def get_queryset(self):
+        return Bid.objects.select_related(*BID_REQUEST_SELECT_RELATED).filter(
+            contractor=self.request.user, status=BidStatus.SELECTED
+        )
 
 
 @extend_schema(tags=["marketplace"], summary="Заказчик рассматривает отклик (раскрытие телефона)")

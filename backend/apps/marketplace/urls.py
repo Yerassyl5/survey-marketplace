@@ -5,6 +5,7 @@ from .views import (
     AwardView,
     BidListCreateView,
     ConsiderBidView,
+    MyAwardedListView,
     MyBidListView,
     RequestDetailView,
     RequestListCreateView,
@@ -24,4 +25,5 @@ urlpatterns = [
     path("requests/<int:pk>/accept/", AcceptView.as_view(), name="request-accept"),
     path("requests/<int:pk>/return/", ReturnView.as_view(), name="request-return"),
     path("my-bids/", MyBidListView.as_view(), name="my-bids"),
+    path("my-awarded/", MyAwardedListView.as_view(), name="my-awarded"),
 ]

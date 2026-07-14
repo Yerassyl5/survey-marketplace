@@ -565,6 +565,109 @@ class RequestLifecycleTest(TestCase):
             f"{queries_for_four} на 4 — не хватает select_related.",
         )
 
+    # ------------------------------------------------------------------
+    # «В работе и выполненные» (MyAwardedListView)
+    # ------------------------------------------------------------------
+    def test_my_awarded_lists_only_selected_bids(self):
+        """architecture.md §4.3: фильтр по Bid.status=selected, не по
+        Request.assigned_contractor — заявка, где тот же исполнитель просто
+        откликнулся (pending), в «В работе» не попадает."""
+        req = self._create_request()
+        bid = Bid.objects.create(
+            request=req, contractor=self.contractor, price=100000, deadline_days=10,
+            considered_at=timezone.now(),
+        )
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.UNDER_REVIEW)
+        self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": bid.id}, format="json")
+
+        other_req = self._create_request()
+        Bid.objects.create(request=other_req, contractor=self.contractor, price=50000, deadline_days=5)
+
+        r = self.client_e.get("/api/marketplace/my-awarded/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(r.data), 1)
+        self.assertEqual(r.data[0]["request"]["id"], req.id)
+
+    def test_my_awarded_includes_status(self):
+        """Здесь Request.status легитимен (см. BidRequestWithStatusSerializer) —
+        исполнитель уже выиграл, статус нужен, чтобы понимать, где сделка."""
+        req = self._create_request()
+        bid = Bid.objects.create(
+            request=req, contractor=self.contractor, price=100000, deadline_days=10,
+            considered_at=timezone.now(),
+        )
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.UNDER_REVIEW)
+        self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": bid.id}, format="json")
+
+        r = self.client_e.get("/api/marketplace/my-awarded/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data[0]["request"]["status"], RequestStatus.AWARDED)
+
+    def test_my_awarded_excludes_rejected_rival(self):
+        """Проигравший отклик (status=rejected после award) не попадает в
+        «В работе» проигравшего исполнителя — только у победителя status=selected."""
+        req = self._create_request()
+        winner_bid = Bid.objects.create(
+            request=req, contractor=self.contractor, price=100000, deadline_days=10,
+            considered_at=timezone.now(),
+        )
+        loser = make_contractor("loser@test.kz")
+        Bid.objects.create(
+            request=req, contractor=loser, price=90000, deadline_days=8,
+            considered_at=timezone.now(),
+        )
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.UNDER_REVIEW)
+        self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": winner_bid.id}, format="json")
+
+        loser_client = APIClient()
+        loser_client.force_authenticate(loser)
+        r = loser_client.get("/api/marketplace/my-awarded/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(r.data), 0)
+
+    def test_my_awarded_requires_contractor_role(self):
+        r = self.client_c.get("/api/marketplace/my-awarded/")
+        self.assertEqual(r.status_code, 403)
+
+    def test_my_awarded_location_display_does_not_n_plus_one(self):
+        """Тот же паттерн N+1, что и в /my-bids/ (см. тест выше для MyBidListView) —
+        MyAwardedListView использует ту же константу BID_REQUEST_SELECT_RELATED,
+        проверяем это фактом, не полагаясь на то, что константа общая."""
+        _, district = make_district()
+
+        def make_selected_bid(*, location_type, city=None, district_=None):
+            req = Request.objects.create(
+                site=self.site, customer=self.customer,
+                work_type="geodesy", description="x",
+                location_type=location_type, city=city, district=district_,
+            )
+            bid = Bid.objects.create(
+                request=req, contractor=self.contractor, price=100000, deadline_days=10,
+                considered_at=timezone.now(), status=BidStatus.SELECTED,
+            )
+            Request.objects.filter(pk=req.pk).update(
+                status=RequestStatus.AWARDED, assigned_contractor=self.contractor,
+            )
+            return bid
+
+        make_selected_bid(location_type=LocationType.CITY, city=self.city)
+        with CaptureQueriesContext(connection) as ctx_one:
+            r = self.client_e.get("/api/marketplace/my-awarded/")
+        self.assertEqual(r.status_code, 200)
+        queries_for_one = len(ctx_one.captured_queries)
+
+        make_selected_bid(location_type=LocationType.DISTRICT, district_=district)
+        with CaptureQueriesContext(connection) as ctx_two:
+            r = self.client_e.get("/api/marketplace/my-awarded/")
+        self.assertEqual(r.status_code, 200)
+        queries_for_two = len(ctx_two.captured_queries)
+
+        self.assertEqual(
+            queries_for_one, queries_for_two,
+            f"Запросы растут с числом откликов: {queries_for_one} на 1, "
+            f"{queries_for_two} на 2 — не хватает select_related.",
+        )
+
     def test_consider_foreign_request_not_found(self):
         other_customer = make_customer("other-consider@test.kz")
         other_site = make_site(other_customer)

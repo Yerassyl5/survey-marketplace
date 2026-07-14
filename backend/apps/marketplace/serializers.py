@@ -91,6 +91,30 @@ class BidOwnerSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class BidRequestWithStatusSerializer(BidRequestBriefSerializer):
+    """BidRequestBriefSerializer + Request.status — ТОЛЬКО для MyAwardedBidSerializer
+    («В работе и выполненные»). Безопасно ровно потому, что этот сериализатор
+    используется исключительно в MyAwardedListView, которая фильтрует
+    Bid.objects.filter(contractor=request.user, status=BidStatus.SELECTED) —
+    Bid.status=SELECTED структурно гарантирует, что Request.assigned_contractor
+    это тот же самый пользователь (AwardView проставляет оба поля синхронно,
+    см. views.py). Третьей стороне статус этой заявки через этот эндпоинт
+    увидеть невозможно ни при каких условиях (permission + фильтр по себе)."""
+    status = serializers.CharField()
+
+
+class MyAwardedBidSerializer(BidOwnerSerializer):
+    """GET /my-awarded/ — «В работе и выполненные» (architecture.md §4.3):
+    только отклики со status=selected (заявка перешла в awarded и далее),
+    независимо от статуса откликов на другие заявки. request здесь включает
+    Request.status — см. обоснование в BidRequestWithStatusSerializer."""
+    request = BidRequestWithStatusSerializer(read_only=True)
+
+    class Meta(BidOwnerSerializer.Meta):
+        fields = BidOwnerSerializer.Meta.fields
+        read_only_fields = fields
+
+
 class BidCustomerSerializer(BidOwnerSerializer):
     """GET — заказчик-владелец смотрит отклики на свою заявку. Плюс
     contractor_phone — гейт на уровне сериализатора (SerializerMethodField),
