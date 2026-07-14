@@ -54,19 +54,38 @@ class BidCreateSerializer(serializers.ModelSerializer):
         return bid
 
 
+class BidRequestBriefSerializer(serializers.Serializer):
+    """Заявка, на которую сделан отклик — контекст для «Моих откликов»
+    (BidOwnerSerializer). Инвариант №9: НЕ включает status/considered_at/
+    bids_count — исполнитель уже видит статус СВОЕГО отклика на верхнем
+    уровне (considered_at + Bid.status), Request.status ему в этом разделе
+    не нужен и не добавляется (см. architecture.md §4.3 — «Мои отклики»
+    вычисляет статус из пары considered_at/Bid.status, не из Request.status)."""
+    id = serializers.IntegerField()
+    work_type = serializers.CharField()
+    location_display = serializers.SerializerMethodField()
+    description = serializers.CharField()
+
+    def get_location_display(self, obj):
+        return obj.location_label
+
+
 class BidOwnerSerializer(serializers.ModelSerializer):
     """GET — исполнитель смотрит СВОИ отклики (MyBidListView, по всем заявкам).
     considered_at виден (нужен для статуса «ожидает/рассматривают/выбран/не
     выбран» в будущем кабинете исполнителя, PRODUCT_SPEC 1.4) — contractor_phone
     здесь НЕТ вообще, поле не существует в этой структуре ответа: раскрытие
     телефона одностороннее (только заказчику), это не гейт по значению, а
-    отсутствие поля как такового для этой аудитории."""
+    отсутствие поля как такового для этой аудитории. request — краткая карточка
+    заявки (см. BidRequestBriefSerializer), без неё «Мои отклики» нечего
+    рендерить (цена/срок без указания, НА ЧТО откликался)."""
     contractor = ContractorBriefSerializer(read_only=True)
+    request = BidRequestBriefSerializer(read_only=True)
 
     class Meta:
         model = Bid
         fields = [
-            "id", "contractor", "comment", "price", "deadline_days",
+            "id", "contractor", "request", "comment", "price", "deadline_days",
             "status", "considered_at", "created_at",
         ]
         read_only_fields = fields
@@ -76,11 +95,15 @@ class BidCustomerSerializer(BidOwnerSerializer):
     """GET — заказчик-владелец смотрит отклики на свою заявку. Плюс
     contractor_phone — гейт на уровне сериализатора (SerializerMethodField),
     не в UI/вьюхе: раскрывается только после Bid.considered_at (см.
-    ConsiderBidView), иначе None."""
+    ConsiderBidView), иначе None. request ИСКЛЮЧЕНО из унаследованных полей:
+    заказчик и так на странице своей заявки (контекст уже есть), а
+    BidListCreateView.get_queryset() не делает select_related("request") —
+    оставить поле означало бы N+1 на каждый отклик (плюс ещё запросы на
+    city/district внутри location_label) ради дублирующей информации."""
     contractor_phone = serializers.SerializerMethodField()
 
     class Meta(BidOwnerSerializer.Meta):
-        fields = BidOwnerSerializer.Meta.fields + ["contractor_phone"]
+        fields = [f for f in BidOwnerSerializer.Meta.fields if f != "request"] + ["contractor_phone"]
         read_only_fields = fields
 
     def get_contractor_phone(self, obj):

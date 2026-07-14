@@ -496,6 +496,30 @@ class RequestLifecycleTest(TestCase):
         self.assertNotIn("contractor_phone", r.data[0])
         self.assertIsNotNone(r.data[0]["considered_at"])
 
+    def test_my_bids_includes_request_summary(self):
+        """«Мои отклики» без данных заявки нечего рендерить — раздел показывает,
+        НА ЧТО откликался исполнитель, не только цену/срок своего предложения."""
+        req = self._create_request()
+        Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
+        r = self.client_e.get("/api/marketplace/my-bids/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data[0]["request"]["id"], req.id)
+        self.assertEqual(r.data[0]["request"]["work_type"], "geodesy")
+        self.assertEqual(r.data[0]["request"]["location_display"], "Алматы")
+        self.assertEqual(r.data[0]["request"]["description"], "x")
+
+    def test_my_bids_request_never_exposes_status(self):
+        """Инвариант №9: «Мои отклики» вычисляет статус из considered_at/Bid.status,
+        не из Request.status — поле не должно утечь ни на верхнем уровне ответа,
+        ни во вложенном request, независимо от реального статуса заявки."""
+        req = self._create_request()
+        Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.UNDER_REVIEW)
+        r = self.client_e.get("/api/marketplace/my-bids/")
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("status", r.data[0]["request"])
+        self.assertIn("status", r.data[0])  # это Bid.status ("pending") — легитимно, другое поле
+
     def test_consider_foreign_request_not_found(self):
         other_customer = make_customer("other-consider@test.kz")
         other_site = make_site(other_customer)
