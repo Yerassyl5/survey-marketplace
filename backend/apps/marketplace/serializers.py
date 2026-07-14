@@ -5,6 +5,8 @@ from decimal import Decimal
 from rest_framework import serializers
 from rest_framework_gis.fields import GeometryField
 
+from apps.accounts.models import Role
+
 from common.events import publish
 
 from .events import BidPlaced, RequestCreated
@@ -253,6 +255,19 @@ class RequestFeedSerializer(serializers.ModelSerializer):
         return bool(getattr(obj, "has_bid", False))
 
 
+class MyBidBriefSerializer(serializers.ModelSerializer):
+    """Отклик ТЕКУЩЕГО исполнителя на ЭТУ заявку — вложенный объект на
+    странице заявки (см. RequestFeedDetailSerializer.to_representation).
+    Не про чужие отклики — это его собственное действие и его результат,
+    инвариант №9 не касается. status/considered_at здесь достаточно, чтобы
+    построить все пять состояний «честной панели» на фронте БЕЗ единого
+    обращения к Request.status (см. architecture.md §4.3)."""
+    class Meta:
+        model = Bid
+        fields = ["id", "price", "deadline_days", "comment", "created_at", "status", "considered_at"]
+        read_only_fields = fields
+
+
 class RequestFeedDetailSerializer(RequestFeedSerializer):
     """Только для RequestDetailView (карточка заявки, исполнитель) — не для
     ленты: список не должен таскать геометрию объекта на 20 строк, она там
@@ -263,12 +278,39 @@ class RequestFeedDetailSerializer(RequestFeedSerializer):
     {"type": "Point", "coordinates": [...]}. Карточка объекта (sites) не
     трогается и остаётся приватной для заказчика-владельца (IsCustomer) —
     геометрию исполнителю отдаёт marketplace, который уже правильно решает,
-    что ему разрешено видеть (open-заявки + назначенные ему)."""
+    что ему разрешено видеть (open-заявки + назначенные ему).
+
+    my_bid — СОБСТВЕННЫЙ отклик текущего исполнителя на эту заявку (если
+    есть), добавляется через to_representation, не Meta.fields: нужен
+    инстанс пользователя из контекста запроса, декларативным полем это не
+    выразить. Один дополнительный запрос допустим — это RetrieveAPIView
+    (одна заявка за раз), не список: N+1 здесь не возникает (в отличие от
+    ленты/RequestFeedSerializer, где my_bid сознательно не добавлен —
+    20 строк на странице означали бы 20 лишних запросов).
+
+    ВНЕ СКОУПА этого добавления: раскрытие Request.status победителю (нужно
+    для будущего экрана сдачи результата) — отдельная задача, здесь не
+    делается. Пятисостояниевая «честная панель» на фронте строится целиком
+    из my_bid.status/considered_at, Request.status ей не требуется."""
     site_geometry = GeometryField(source="site.geometry", read_only=True)
 
     class Meta(RequestFeedSerializer.Meta):
         fields = RequestFeedSerializer.Meta.fields + ["site_geometry"]
         read_only_fields = fields
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # getattr, не user.role напрямую — тот же приём, что и в
+        # RequestListCreateView.get_serializer_class(): drf-spectacular
+        # интроспектирует схему с AnonymousUser (нет атрибута role), а
+        # Bid.objects.filter(contractor=AnonymousUser) упал бы на этапе
+        # построения схемы, не только в рантайме.
+        viewer = self.context["request"].user
+        if getattr(viewer, "role", None) == Role.CONTRACTOR:
+            my_bid = Bid.objects.filter(request=instance, contractor=viewer).first()
+            if my_bid:
+                data["my_bid"] = MyBidBriefSerializer(my_bid).data
+        return data
 
 
 class RequestFeedForCustomerSerializer(RequestFeedSerializer):

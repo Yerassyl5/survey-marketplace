@@ -198,7 +198,29 @@ class RequestDetailView(generics.RetrieveAPIView):
             # Свои — в любом статусе; чужие — только открытые (та же общая
             # лента, что и на /feed?scope=feed).
             return qs.filter(Q(customer=user) | Q(status__in=FEED_VISIBLE_STATUSES))
-        return qs.filter(Q(status__in=FEED_VISIBLE_STATUSES) | Q(assigned_contractor=user)).annotate(
+        # Третье условие — id__in=Bid.objects...values("request_id"), НЕ
+        # Q(bids__contractor=user). Разница критична: Q(bids__contractor=...)
+        # заставляет Django сделать JOIN на marketplace_bid прямо в основном
+        # запросе (не EXISTS-подзапрос, как у аннотации has_bid ниже) — если у
+        # заявки несколько откликов от РАЗНЫХ исполнителей (обычный случай),
+        # JOIN размножает строку Request по числу откликов, и .get(pk=X) в
+        # get_object_or_404 падает MultipleObjectsReturned (500) на ЛЮБОЙ
+        # заявке с ≥2 откликами — не только там, где сработало бы новое
+        # условие. id__in=(...) — это IN (SELECT ...), подзапрос, а не JOIN:
+        # строк не размножает. Регрессия на это condition покрыта
+        # test_contractor_detail_no_multiple_objects_returned_with_rival_bids.
+        #
+        # Условие открывает исполнителю ЛЮБОЙ его отклик независимо от
+        # текущего статуса заявки — заявка часть его истории («Мои отклики»,
+        # PRODUCT_SPEC 1.4), скрывать её после awarded/rejected нельзя.
+        # Проигравший при этом НЕ получает Request.status/result_files —
+        # RequestFeedDetailSerializer их структурно не отдаёт никому, кроме
+        # my_bid (см. serializers.py), которое про его собственный отклик.
+        return qs.filter(
+            Q(status__in=FEED_VISIBLE_STATUSES)
+            | Q(assigned_contractor=user)
+            | Q(id__in=Bid.objects.filter(contractor=user).values("request_id"))
+        ).annotate(
             has_bid=Exists(Bid.objects.filter(request=OuterRef("pk"), contractor=user))
         )
 

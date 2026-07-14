@@ -206,6 +206,90 @@ class RequestLifecycleTest(TestCase):
         r = self.client_e.get(f"/api/marketplace/requests/{req.id}/")
         self.assertEqual(r.status_code, 404)
 
+    # ------------------------------------------------------------------
+    # Доступ к заявке через собственный отклик (баг: проигравший терял
+    # доступ к своей истории после awarded) + my_bid
+    # ------------------------------------------------------------------
+    def test_contractor_detail_no_multiple_objects_returned_with_rival_bids(self):
+        """Регрессия на размножение строк через JOIN: если условие «это мой
+        отклик» на RequestDetailView когда-нибудь «упростят» обратно на
+        Q(bids__contractor=user) вместо id__in=Bid.objects...values("request_id"),
+        Django построит JOIN на marketplace_bid прямо в основном запросе (не
+        EXISTS-подзапрос, как у аннотации has_bid) — и на заявке с несколькими
+        откликами ОТ РАЗНЫХ исполнителей .get(pk=X) внутри get_object_or_404
+        упадёт MultipleObjectsReturned (500), а не просто вернёт неверные
+        данные. Три отклика от трёх разных исполнителей на уже awarded
+        заявке — доступ возможен ТОЛЬКО через «это мой отклик» (не через
+        FEED_VISIBLE_STATUSES, не через assigned_contractor), ровно тот путь,
+        который чинили."""
+        req = self._create_request()
+        my_bid = Bid.objects.create(
+            request=req, contractor=self.contractor, price=100000, deadline_days=10,
+            considered_at=timezone.now(),
+        )
+        rival1 = make_contractor("rival-detail-1@test.kz")
+        rival2 = make_contractor("rival-detail-2@test.kz")
+        Bid.objects.create(request=req, contractor=rival1, price=90000, deadline_days=8, considered_at=timezone.now())
+        winner_bid = Bid.objects.create(
+            request=req, contractor=rival2, price=80000, deadline_days=7, considered_at=timezone.now(),
+        )
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.UNDER_REVIEW)
+        self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": winner_bid.id}, format="json")
+
+        r = self.client_e.get(f"/api/marketplace/requests/{req.id}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["my_bid"]["id"], my_bid.id)
+
+    def test_rejected_contractor_sees_own_bid_not_request_status(self):
+        """Пункт 4 (баг): проигравший теперь ОТКРЫВАЕТ заявку (не 404) — это
+        часть его истории («Мои отклики»). Пункт 5/инвариант №9: при этом он
+        получает ТОЛЬКО my_bid (свой отклик) — status/assigned_contractor/
+        result_files/result_note по-прежнему структурно отсутствуют (раскрытие
+        Request.status победителю — вне скоупа этого шага, см. docstring
+        RequestFeedDetailSerializer)."""
+        req = self._create_request()
+        bid = Bid.objects.create(
+            request=req, contractor=self.contractor, price=100000, deadline_days=10,
+            considered_at=timezone.now(),
+        )
+        winner = make_contractor("winner-detail@test.kz")
+        winner_bid = Bid.objects.create(
+            request=req, contractor=winner, price=90000, deadline_days=8, considered_at=timezone.now(),
+        )
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.UNDER_REVIEW)
+        self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": winner_bid.id}, format="json")
+
+        r = self.client_e.get(f"/api/marketplace/requests/{req.id}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("status", r.data)
+        self.assertNotIn("assigned_contractor", r.data)
+        self.assertNotIn("result_files", r.data)
+        self.assertNotIn("result_note", r.data)
+        self.assertIn("my_bid", r.data)
+        self.assertEqual(r.data["my_bid"]["id"], bid.id)
+        self.assertEqual(r.data["my_bid"]["status"], "rejected")
+        self.assertIsNotNone(r.data["my_bid"]["considered_at"])
+
+    def test_my_bid_absent_when_contractor_has_not_bid(self):
+        req = self._create_request()
+        r = self.client_e.get(f"/api/marketplace/requests/{req.id}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("my_bid", r.data)
+
+    def test_my_bid_reflects_own_bid_fields(self):
+        req = self._create_request()
+        bid = Bid.objects.create(
+            request=req, contractor=self.contractor, price=123456, deadline_days=15, comment="моя заявка",
+        )
+        r = self.client_e.get(f"/api/marketplace/requests/{req.id}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["my_bid"]["id"], bid.id)
+        self.assertEqual(r.data["my_bid"]["price"], "123456.00")
+        self.assertEqual(r.data["my_bid"]["deadline_days"], 15)
+        self.assertEqual(r.data["my_bid"]["comment"], "моя заявка")
+        self.assertEqual(r.data["my_bid"]["status"], "pending")
+        self.assertIsNone(r.data["my_bid"]["considered_at"])
+
     def test_contractor_detail_includes_site_geometry(self):
         req = self._create_request()
         r = self.client_e.get(f"/api/marketplace/requests/{req.id}/")
