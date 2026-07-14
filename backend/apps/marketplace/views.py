@@ -263,8 +263,14 @@ class MyBidListView(generics.ListAPIView):
     permission_classes = [IsContractor]
 
     def get_queryset(self):
+        # request__city/request__district/request__district__region — иначе
+        # BidRequestBriefSerializer.get_location_display() (Request.location_label)
+        # даёт N+1 на каждый отклик: CITY трогает request.city, DISTRICT —
+        # request.district И request.district.region. Найдено и проверено
+        # assertNumQueries (test_my_bids_location_display_does_not_n_plus_one).
         return Bid.objects.select_related(
-            "request", "contractor", "contractor__contractor_profile"
+            "request", "request__city", "request__district", "request__district__region",
+            "contractor", "contractor__contractor_profile",
         ).filter(contractor=self.request.user)
 
 

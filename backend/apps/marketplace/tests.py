@@ -6,7 +6,9 @@ from unittest.mock import patch
 
 from django.contrib.gis.geos import Point
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -519,6 +521,49 @@ class RequestLifecycleTest(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertNotIn("status", r.data[0]["request"])
         self.assertIn("status", r.data[0])  # это Bid.status ("pending") — легитимно, другое поле
+
+    def test_my_bids_location_display_does_not_n_plus_one(self):
+        """BidRequestBriefSerializer.get_location_display() читает
+        Request.location_label, который для CITY трогает request.city, а для
+        DISTRICT — request.district И request.district.region. MyBidListView
+        select_related покрывает только request/contractor/contractor__profile —
+        без request__city/request__district/request__district__region это N+1
+        на каждый отклик. Проверяем количеством запросов, не чтением кода:
+        число запросов на 1 отклик и на 4 (2 city + 2 district, разные
+        объекты, чтобы не спрятать N+1 за identity map на одном и том же
+        FK) должно совпадать — иначе запросы растут с числом откликов."""
+        _, district = make_district()
+        second_city = make_city("Костанай")
+
+        def make_bid(*, location_type, city=None, district_=None):
+            req = Request.objects.create(
+                site=self.site, customer=self.customer,
+                work_type="geodesy", description="x",
+                location_type=location_type, city=city, district=district_,
+            )
+            return Bid.objects.create(
+                request=req, contractor=self.contractor, price=100000, deadline_days=10,
+            )
+
+        make_bid(location_type=LocationType.CITY, city=self.city)
+        with CaptureQueriesContext(connection) as ctx_one:
+            r = self.client_e.get("/api/marketplace/my-bids/")
+        self.assertEqual(r.status_code, 200)
+        queries_for_one = len(ctx_one.captured_queries)
+
+        make_bid(location_type=LocationType.CITY, city=second_city)
+        make_bid(location_type=LocationType.DISTRICT, district_=district)
+        make_bid(location_type=LocationType.DISTRICT, district_=district)
+        with CaptureQueriesContext(connection) as ctx_four:
+            r = self.client_e.get("/api/marketplace/my-bids/")
+        self.assertEqual(r.status_code, 200)
+        queries_for_four = len(ctx_four.captured_queries)
+
+        self.assertEqual(
+            queries_for_one, queries_for_four,
+            f"Запросы растут с числом откликов: {queries_for_one} на 1, "
+            f"{queries_for_four} на 4 — не хватает select_related.",
+        )
 
     def test_consider_foreign_request_not_found(self):
         other_customer = make_customer("other-consider@test.kz")
