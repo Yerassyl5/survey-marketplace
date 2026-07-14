@@ -54,3 +54,13 @@ class DealCompleted(DomainEvent):
 class ResultReturned(DomainEvent):
     """Заказчик вернул результат на доработку."""
     request_id: int
+
+
+@dataclass(frozen=True)
+class BidWithdrawn(DomainEvent):
+    """Исполнитель отозвал отклик (только пока не рассмотрен — WithdrawBidView).
+    bid_id указывает на уже удалённую строку (hard delete) — событие остаётся
+    единственным следом отзыва в системе, значения захвачены до удаления."""
+    request_id: int
+    bid_id: int
+    contractor_id: int

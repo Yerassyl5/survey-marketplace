@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -15,7 +16,15 @@ from apps.accounts.models import Role, VerificationStatus
 
 from common.events import publish
 
-from .events import BidConsidered, DealCompleted, RequestAccepted, RequestAwarded, ResultReturned, ResultSubmitted
+from .events import (
+    BidConsidered,
+    BidWithdrawn,
+    DealCompleted,
+    RequestAccepted,
+    RequestAwarded,
+    ResultReturned,
+    ResultSubmitted,
+)
 from .models import Bid, BidStatus, Request, RequestStatus, ResultFile
 from .serializers import (
     BidCreateSerializer,
@@ -351,6 +360,65 @@ class ConsiderBidView(APIView):
                 request_id=bid.request_id, bid_id=bid.id, contractor_id=bid.contractor_id,
             ))
         return Response(BidCustomerSerializer(bid).data)
+
+
+@extend_schema(tags=["marketplace"], summary="Исполнитель отзывает отклик")
+class WithdrawBidView(APIView):
+    """Исполнитель отзывает СВОЙ отклик — симметрично инварианту №7 у
+    заказчика (раз телефон раскрыт, назад дороги нет): пока considered_at
+    не проставлен, отклик ничего не стоил заказчику, можно откликнуться
+    заново с другой ценой.
+
+    Гейт — status == PENDING И considered_at is None, ОБЕ проверки, не
+    только considered_at. Пограничный случай: rejected без considered_at
+    («заявка закрыта» — заказчик выбрал ДРУГОЙ отклик, до этого не дошли,
+    см. RequestFeedDetailSerializer/my_bid) тоже имеет considered_at=None,
+    но отзывать там уже нечего — исход этой заявки решён award'ом другого
+    отклика. selected без considered_at структурно невозможен (AwardView
+    требует considered_at is not None для выбора), поэтому единственная
+    реальная развилка, которую эта пара условий разруливает — именно
+    rejected/PENDING при пустом considered_at.
+
+    Hard delete строки Bid (не мягкий статус withdrawn) — проще, и
+    unique_together("request", "contractor") иначе заблокировал бы повторный
+    отклик после отзыва. Событие BidWithdrawn — единственный оставшийся след
+    отзыва, публикуется ДО удаления по захваченным значениям."""
+    permission_classes = [IsContractor]
+
+    def post(self, request, pk):
+        bid = Bid.objects.filter(pk=pk, contractor=request.user).first()
+        if not bid:
+            return Response({"detail": "Отклик не найден или недоступен."}, status=status.HTTP_404_NOT_FOUND)
+        if bid.status != BidStatus.PENDING or bid.considered_at is not None:
+            return Response(
+                {"detail": "Отклик уже рассмотрен или заявка присвоена — отозвать нельзя."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        request_id, bid_id, contractor_id = bid.request_id, bid.id, bid.contractor_id
+        publish(BidWithdrawn(request_id=request_id, bid_id=bid_id, contractor_id=contractor_id))
+        # ГОНКА, сознательно не закрыта: между bid.delete() и проверкой
+        # exists() ниже другой исполнитель теоретически может успеть
+        # закоммитить СВОЙ POST /bids/ на ту же заявку — Postgres READ
+        # COMMITTED (дефолт) не блокирует такое параллельное чтение/запись
+        # одним только transaction.atomic() здесь. В худшем случае Request
+        # на короткое окно ложно откатится в open, хотя фактически отклик
+        # уже появился — статус самокорректируется следующим же обращением к
+        # заявке (BidListCreateView.perform_create снова переводит open →
+        # under_review при следующем отклике), пользователь не видит
+        # постоянно неверного состояния. Не защищаю сейчас: при MVP-нагрузке
+        # (единицы одновременных действий на ОДНУ заявку, не десятки) окно
+        # гонки исчезающе мало, а Request.objects.select_for_update() на
+        # КАЖДЫЙ POST /bids/ и /withdraw/ — постоянная цена блокировки строки
+        # ради редкого совпадения. Если гонка проявится в проде — добавить
+        # select_for_update() здесь и в BidListCreateView.perform_create()
+        # (см. тот же техдолг в docs/progress.md).
+        with transaction.atomic():
+            bid.delete()
+            if not Bid.objects.filter(request_id=request_id).exists():
+                Request.objects.filter(pk=request_id, status=RequestStatus.UNDER_REVIEW).update(
+                    status=RequestStatus.OPEN
+                )
+        return Response(status=status.HTTP_200_OK)
 
 
 @extend_schema(tags=["marketplace"], summary="Выбор исполнителя заказчиком", request={"application/json": {"type": "object", "properties": {"bid_id": {"type": "integer"}}}})

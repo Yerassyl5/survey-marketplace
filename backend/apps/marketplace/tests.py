@@ -16,7 +16,7 @@ from apps.accounts.models import ContractorProfile, Role, User, VerificationStat
 from apps.geo.models import City, District, Region
 from apps.sites.models import Site
 
-from .events import BidConsidered
+from .events import BidConsidered, BidWithdrawn
 from .models import Bid, BidStatus, LocationType, Request, RequestStatus
 
 
@@ -751,6 +751,104 @@ class RequestLifecycleTest(TestCase):
             f"Запросы растут с числом откликов: {queries_for_one} на 1, "
             f"{queries_for_two} на 2 — не хватает select_related.",
         )
+
+    # ------------------------------------------------------------------
+    # Отзыв отклика (WithdrawBidView)
+    # ------------------------------------------------------------------
+    def test_withdraw_last_bid_reverts_request_to_open(self):
+        req = self._create_request()
+        bid = Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.UNDER_REVIEW)
+
+        r = self.client_e.post(f"/api/marketplace/bids/{bid.id}/withdraw/")
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(Bid.objects.filter(pk=bid.pk).exists())
+        req.refresh_from_db()
+        self.assertEqual(req.status, RequestStatus.OPEN)
+
+    def test_withdraw_one_of_two_keeps_request_under_review(self):
+        req = self._create_request()
+        bid = Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
+        other = make_contractor("withdraw-rival@test.kz")
+        Bid.objects.create(request=req, contractor=other, price=90000, deadline_days=8)
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.UNDER_REVIEW)
+
+        r = self.client_e.post(f"/api/marketplace/bids/{bid.id}/withdraw/")
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(Bid.objects.filter(pk=bid.pk).exists())
+        req.refresh_from_db()
+        self.assertEqual(req.status, RequestStatus.UNDER_REVIEW)
+
+    def test_withdraw_considered_bid_rejected(self):
+        req = self._create_request()
+        bid = Bid.objects.create(
+            request=req, contractor=self.contractor, price=100000, deadline_days=10,
+            considered_at=timezone.now(),
+        )
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.UNDER_REVIEW)
+
+        r = self.client_e.post(f"/api/marketplace/bids/{bid.id}/withdraw/")
+        self.assertEqual(r.status_code, 409)
+        self.assertTrue(Bid.objects.filter(pk=bid.pk).exists())
+
+    def test_withdraw_rejected_without_review_is_rejected(self):
+        """Пограничный случай, найденный при планировании: rejected БЕЗ
+        considered_at («заявка закрыта» — заказчик выбрал другого, до этого
+        отклика не дошли) имеет considered_at=None, но status != PENDING —
+        withdraw должен отказать (409), не тихо удалить уже решённый отклик."""
+        req = self._create_request()
+        bid = Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
+        winner = make_contractor("withdraw-winner@test.kz")
+        winner_bid = Bid.objects.create(
+            request=req, contractor=winner, price=90000, deadline_days=8, considered_at=timezone.now(),
+        )
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.UNDER_REVIEW)
+        self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": winner_bid.id}, format="json")
+        bid.refresh_from_db()
+        self.assertEqual(bid.status, BidStatus.REJECTED)
+        self.assertIsNone(bid.considered_at)
+
+        r = self.client_e.post(f"/api/marketplace/bids/{bid.id}/withdraw/")
+        self.assertEqual(r.status_code, 409)
+        self.assertTrue(Bid.objects.filter(pk=bid.pk).exists())
+
+    def test_withdraw_foreign_bid_not_found(self):
+        req = self._create_request()
+        other = make_contractor("withdraw-foreign@test.kz")
+        bid = Bid.objects.create(request=req, contractor=other, price=100000, deadline_days=10)
+
+        r = self.client_e.post(f"/api/marketplace/bids/{bid.id}/withdraw/")
+        self.assertEqual(r.status_code, 404)
+        self.assertTrue(Bid.objects.filter(pk=bid.pk).exists())
+
+    def test_rebid_after_withdraw_succeeds(self):
+        """unique_together("request", "contractor") не мешает повторному
+        отклику после withdraw — строка была удалена, не помечена статусом."""
+        req = self._create_request()
+        bid = Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.UNDER_REVIEW)
+        self.client_e.post(f"/api/marketplace/bids/{bid.id}/withdraw/")
+
+        r = self.client_e.post(f"/api/marketplace/requests/{req.id}/bids/", {
+            "price": "95000.00", "deadline_days": 12, "comment": "новая цена",
+        }, format="json")
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(Bid.objects.filter(request=req, contractor=self.contractor).count(), 1)
+
+    @patch("apps.marketplace.views.publish")
+    def test_withdraw_publishes_event_once(self, mock_publish):
+        req = self._create_request()
+        bid = Bid.objects.create(request=req, contractor=self.contractor, price=100000, deadline_days=10)
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.UNDER_REVIEW)
+
+        r = self.client_e.post(f"/api/marketplace/bids/{bid.id}/withdraw/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(mock_publish.call_count, 1)
+        published = mock_publish.call_args[0][0]
+        self.assertIsInstance(published, BidWithdrawn)
+        self.assertEqual(published.request_id, req.id)
+        self.assertEqual(published.bid_id, bid.id)
+        self.assertEqual(published.contractor_id, self.contractor.id)
 
     def test_consider_foreign_request_not_found(self):
         other_customer = make_customer("other-consider@test.kz")
