@@ -18,6 +18,16 @@
    views.py::WithdrawBidView). В остальных четырёх кнопки нет вообще, не
    задизейблена — состояние, где отзыв уже невозможен, для этой кнопки не
    существует.
+
+   Форма сдачи результата и список сданных файлов — В ОТДЕЛЬНОМ компоненте
+   (см. ResultSubmissionCard.tsx, рендерится в основной колонке page.tsx, не
+   здесь): MultiFilePicker+Textarea тесны в сайдбаре 320px рядом с этой
+   панелью. Здесь остаётся только СТАТУС-ТЕКСТ по requestStatus (три
+   варианта текста для bid.status === "selected") — это текст, не форма.
+   requestStatus отсутствует (undefined), если bid.status !== "selected" —
+   раскрытие бэкенда (RequestFeedDetailSerializer, условие
+   assigned_contractor_id === viewer.id) привязано к победителю, для
+   pending/rejected доп. текстов не требуется.
    ──────────────────────────────────────────────────────────────────────── */
 
 import { useState } from "react";
@@ -28,13 +38,22 @@ import { formatDate } from "@/components/ui/RequestRow";
 import { useRouter as useI18nRouter } from "@/i18n/navigation";
 import { AuthRequiredError } from "@/lib/api/client";
 import { withdrawBid } from "@/lib/api/marketplace";
-import type { MyBidBrief } from "@/lib/api/marketplace";
+import type { MyBidBrief, MyRequest } from "@/lib/api/marketplace";
 import { ApiError } from "@/lib/api/types";
 
 type PanelTone = "active" | "review" | "done";
 
-function getStatusMessage(bid: Pick<MyBidBrief, "status" | "considered_at">): { text: string; tone: PanelTone } {
+function getStatusMessage(
+  bid: Pick<MyBidBrief, "status" | "considered_at">,
+  requestStatus: MyRequest["status"] | undefined,
+): { text: string; tone: PanelTone } {
   if (bid.status === "selected") {
+    if (requestStatus === "result_submitted") {
+      return { text: "Результат отправлен, ждём подтверждения заказчика", tone: "review" };
+    }
+    if (requestStatus === "accepted") {
+      return { text: "Заявка закрыта, результат принят", tone: "done" };
+    }
     return { text: "Вас выбрали исполнителем", tone: "active" };
   }
   if (bid.status === "rejected") {
@@ -57,17 +76,18 @@ const TONE_VARS: Record<PanelTone, { bg: string; color: string }> = {
 
 export interface MyBidStatusPanelProps {
   bid: MyBidBrief;
+  requestStatus?: MyRequest["status"];
   onWithdrawSuccess: () => void;
 }
 
-export function MyBidStatusPanel({ bid, onWithdrawSuccess }: MyBidStatusPanelProps) {
+export function MyBidStatusPanel({ bid, requestStatus, onWithdrawSuccess }: MyBidStatusPanelProps) {
   const i18nRouter = useI18nRouter();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
 
   const canWithdraw = bid.status === "pending" && !bid.considered_at;
-  const { text, tone } = getStatusMessage(bid);
+  const { text, tone } = getStatusMessage(bid, requestStatus);
   const toneVars = TONE_VARS[tone];
 
   async function handleWithdraw() {

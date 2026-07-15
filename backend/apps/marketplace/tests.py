@@ -244,9 +244,13 @@ class RequestLifecycleTest(TestCase):
         """Пункт 4 (баг): проигравший теперь ОТКРЫВАЕТ заявку (не 404) — это
         часть его истории («Мои отклики»). Пункт 5/инвариант №9: при этом он
         получает ТОЛЬКО my_bid (свой отклик) — status/assigned_contractor/
-        result_files/result_note по-прежнему структурно отсутствуют (раскрытие
-        Request.status победителю — вне скоупа этого шага, см. docstring
-        RequestFeedDetailSerializer)."""
+        result_files/result_note структурно отсутствуют, потому что условие
+        раскрытия в RequestFeedDetailSerializer.to_representation — строго
+        assigned_contractor_id == viewer.id, а не «есть my_bid» (проигравший
+        удовлетворяет второму, но не первому). Прямая пара с
+        test_winner_sees_status_result_files_and_note — тот же сценарий,
+        только с точки зрения победителя, единственный способ поймать
+        перепутанное условие."""
         req = self._create_request()
         bid = Bid.objects.create(
             request=req, contractor=self.contractor, price=100000, deadline_days=10,
@@ -269,6 +273,45 @@ class RequestLifecycleTest(TestCase):
         self.assertEqual(r.data["my_bid"]["id"], bid.id)
         self.assertEqual(r.data["my_bid"]["status"], "rejected")
         self.assertIsNotNone(r.data["my_bid"]["considered_at"])
+
+    def test_winner_sees_status_result_files_and_note(self):
+        """Раскрытие для победителя (условие assigned_contractor_id ==
+        viewer.id) — нужно для будущей панели сдачи результата. result_files
+        пуст (сдачи ещё не было), result_note — пустая строка (blank=True на
+        модели). Сравнить с test_rejected_contractor_sees_own_bid_not_request_status —
+        тем же сценарием, но с точки зрения проигравшего."""
+        req = self._create_request()
+        winner_bid = Bid.objects.create(
+            request=req, contractor=self.contractor, price=100000, deadline_days=10,
+            considered_at=timezone.now(),
+        )
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.UNDER_REVIEW)
+        self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": winner_bid.id}, format="json")
+
+        r = self.client_e.get(f"/api/marketplace/requests/{req.id}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["status"], RequestStatus.AWARDED)
+        self.assertEqual(r.data["result_files"], [])
+        self.assertEqual(r.data["result_note"], "")
+        self.assertIn("my_bid", r.data)
+
+    def test_bidder_sees_no_status_while_under_review(self):
+        """До award (assigned_contractor is None) условие раскрытия не может
+        выполниться ни для кого, включая самого откликнувшегося — status/
+        result_files/result_note отсутствуют, даже пока заявка «ждёт
+        рассмотрения», а не только после того, как её отдали другому."""
+        req = self._create_request()
+        Bid.objects.create(
+            request=req, contractor=self.contractor, price=100000, deadline_days=10,
+        )
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.UNDER_REVIEW)
+
+        r = self.client_e.get(f"/api/marketplace/requests/{req.id}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("status", r.data)
+        self.assertNotIn("result_files", r.data)
+        self.assertNotIn("result_note", r.data)
+        self.assertIn("my_bid", r.data)
 
     def test_my_bid_absent_when_contractor_has_not_bid(self):
         req = self._create_request()

@@ -2,12 +2,16 @@
 
 /* ────────────────────────────────────────────────────────────────────────
    /ru/requests/[id] — карточка заявки: описание, ТЗ, карта объекта
-   (MapLibre). Исполнитель видит форму отклика в сайдбаре; заказчик —
-   только просмотр (свою заявку — полностью, чужую — обезличенно, customer
-   === null от бэкенда), без сайдбара (отклик не для его роли; полноценный
-   обзор СВОЕЙ заявки заказчиком со списком откликов и award — следующий
-   блок). Guard по роли — здесь же, тем же паттерном, что на /feed (не в
-   общем (app)/layout.tsx): пускает и contractor, и customer.
+   (MapLibre). Сайдбар (320px) — «моё взаимодействие с заявкой», контент по
+   роли: исполнитель без отклика — форма отклика; откликнувшийся — статус
+   своего отклика; заказчик-владелец — краткая сводка откликов со ссылкой
+   на полный список (BidsPanel, полной шириной ниже — карточки с ценой/
+   сроком/телефоном там не помещаются в 320px, см. docs/progress.md);
+   заказчик на чужой заявке через ленту — сайдбара нет вовсе. Победитель
+   дополнительно видит карточку сдачи результата в ОСНОВНОЙ колонке
+   (ResultSubmissionCard, не в сайдбаре — форма там тесна). Guard по роли —
+   здесь же, тем же паттерном, что на /feed (не в общем (app)/layout.tsx):
+   пускает и contractor, и customer.
    ──────────────────────────────────────────────────────────────────────── */
 
 import { useEffect, useState } from "react";
@@ -20,6 +24,7 @@ import { SiteMap } from "@/components/ui/SiteMap";
 import { BidForm } from "@/components/marketplace/BidForm";
 import { BidsPanel } from "@/components/marketplace/BidsPanel";
 import { MyBidStatusPanel } from "@/components/marketplace/MyBidStatusPanel";
+import { ResultSubmissionCard } from "@/components/marketplace/ResultSubmissionCard";
 import { useAuth } from "@/contexts/AuthContext";
 import { Link, useRouter as useI18nRouter } from "@/i18n/navigation";
 import { AuthRequiredError } from "@/lib/api/client";
@@ -72,6 +77,47 @@ function BackToFeedLink() {
       </svg>
       Вернуться в ленту
     </Link>
+  );
+}
+
+/* ── Сайдбар заказчика-владельца — сводка + якорь на полный список
+   BidsPanel ниже (раскладка «C»: сайдбар симметричен слотом с исполнителем,
+   но сам список откликов с ценой/сроком/телефоном остаётся полной шириной —
+   осознанное решение сессии, см. docs/progress.md). ─────────────────────── */
+function BidsSummaryCard({ count }: { count: number }) {
+  return (
+    <div
+      style={{
+        padding: 24,
+        background: "var(--ds-bg-white)",
+        border: "1px solid var(--ds-border)",
+        borderRadius: "var(--ds-r-lg)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 12,
+      }}
+    >
+      <span style={{ fontFamily: "var(--ds-font-heading)", fontSize: 18, fontWeight: 700, color: "var(--ds-text)" }}>
+        Откликов: {count}
+      </span>
+      <a
+        href="#bids-panel"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          fontFamily: "var(--ds-font-body)",
+          fontSize: 14,
+          fontWeight: 600,
+          color: "var(--ds-blue)",
+        }}
+      >
+        Смотреть отклики
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polyline points="9 6 15 12 9 18" />
+        </svg>
+      </a>
+    </div>
   );
 }
 
@@ -177,26 +223,37 @@ function DetailContent({
   isVerified,
   onBidSuccess,
   showBidSidebar,
+  isCustomer,
   onAwarded,
   onWithdrawSuccess,
+  onSubmitResultSuccess,
 }: {
   request: FeedRequestDetail;
   isVerified: boolean;
   onBidSuccess: (bid: Bid) => void;
-  /** Сайдбар отклика — только для роли contractor; заказчик (свою или чужую
-   * заявку) видит только просмотр, без формы отклика. */
+  /** Сайдбар ОТКЛИКА (форма/статус) — только для роли contractor. Сайдбар
+   * вообще — шире: у заказчика-владельца там своя сводка (BidsSummaryCard,
+   * см. isOwnerView в JSX), у заказчика на чужой заявке через ленту —
+   * сайдбара нет вовсе, как и раньше. */
   showBidSidebar: boolean;
+  /** Роль текущего пользователя — явный проп, НЕ выводится из !showBidSidebar.
+   * Нужен отдельно от showBidSidebar ради isOwnerView ниже. */
+  isCustomer: boolean;
   onAwarded: (contractorId: number) => void;
   onWithdrawSuccess: () => void;
+  onSubmitResultSuccess: () => void;
 }) {
   // customer === null — обезличенная чужая заявка (заказчик листает общую ленту).
   const customerLabel = request.customer ? request.customer.organization_name || request.customer.full_name : "Заказчик";
-  // "status" в ответе есть ТОЛЬКО у RequestSerializer — то есть только когда
-  // заказчик смотрит СВОЮ заявку (см. комментарий у FeedRequestDetail в
-  // marketplace.ts). У исполнителя и у заказчика в чужой заявке через
-  // ?scope=feed этого поля нет вообще (инвариант №9) — отдельного признака
-  // is_owner заводить не нужно.
-  const isOwnerView = request.status !== undefined;
+  // "status" в ответе теперь раскрывается ДВУМ разным ролям с РАЗНЫМ условием
+  // на бэкенде: заказчику-владельцу (RequestSerializer) и исполнителю-
+  // победителю (RequestFeedDetailSerializer.to_representation, условие
+  // assigned_contractor_id === viewer.id — нужно для панели сдачи результата).
+  // Поэтому одного "status" in response уже недостаточно, чтобы отличить
+  // «это владелец, полный вид» — гейт по роли обязателен отдельно (баг,
+  // найденный живой проверкой: без isCustomer победитель видел BidsPanel —
+  // интерфейс заказчика, нарушение инварианта №9 по факту доступа к UI).
+  const isOwnerView = isCustomer && request.status !== undefined;
   // Уточняющая геометрия ЗАЯВКИ (необязательна) приоритетнее геометрии
   // объекта — так и задумано моделью (Request.geometry: "участок уже есть
   // на объекте (Site)", это поле только для уточнений). Оба поля теперь
@@ -293,12 +350,27 @@ function DetailContent({
           <Card title="Расположение объекта">
             <SiteMap geometry={geometry} />
           </Card>
+
+          {/* Только для победителя (my_bid.status === "selected") — форма
+             сдачи/список файлов, отдельная карточка от статус-панели
+             сайдбара (замечание 1: MultiFilePicker тесен в 320px). */}
+          {request.my_bid?.status === "selected" && request.status && (
+            <ResultSubmissionCard
+              requestId={request.id}
+              requestStatus={request.status}
+              resultFiles={request.result_files}
+              resultNote={request.result_note}
+              onSubmitResultSuccess={onSubmitResultSuccess}
+            />
+          )}
         </div>
 
-        {showBidSidebar && (
+        {(showBidSidebar || isOwnerView) && (
           <div style={{ flex: "1 1 320px" }}>
-            {request.my_bid ? (
-              <MyBidStatusPanel bid={request.my_bid} onWithdrawSuccess={onWithdrawSuccess} />
+            {isOwnerView ? (
+              <BidsSummaryCard count={request.bids_count ?? 0} />
+            ) : request.my_bid ? (
+              <MyBidStatusPanel bid={request.my_bid} requestStatus={request.status} onWithdrawSuccess={onWithdrawSuccess} />
             ) : (
               <BidForm requestId={request.id} isVerified={isVerified} onSuccess={onBidSuccess} />
             )}
@@ -307,12 +379,14 @@ function DetailContent({
       </div>
 
       {isOwnerView && (
-        <BidsPanel
-          requestId={request.id}
-          requestStatus={request.status!}
-          bidsCount={request.bids_count ?? 0}
-          onAwarded={onAwarded}
-        />
+        <div id="bids-panel">
+          <BidsPanel
+            requestId={request.id}
+            requestStatus={request.status!}
+            bidsCount={request.bids_count ?? 0}
+            onAwarded={onAwarded}
+          />
+        </div>
       )}
     </div>
   );
@@ -420,6 +494,26 @@ export default function RequestDetailPage() {
     );
   }
 
+  // Рефетч, не ручной мердж: submitResult() отдаёт только {status}, без
+  // id/URL новых ResultFile — собирать их на клиенте значит рисковать
+  // разойтись с тем, что реально сохранил сервер (тот же принцип, что и
+  // handleBidSuccess/handleWithdrawSuccess выше, только там хватало данных
+  // из ответа, а здесь — нет).
+  async function handleSubmitResultSuccess() {
+    try {
+      const data = await getRequestDetail(requestId);
+      setResult({ key: requestKey, status: "success", data });
+    } catch (err) {
+      if (err instanceof AuthRequiredError) {
+        i18nRouter.replace("/login");
+        return;
+      }
+      // Сдача уже прошла на бэкенде — рефетч лишь обновляет вид страницы;
+      // если он не удался (например, сеть моргнула сразу после успешного
+      // POST), молча оставляем прежние данные до следующего F5/повтора.
+    }
+  }
+
   if (!user || !isAllowedRole) {
     return null;
   }
@@ -438,8 +532,10 @@ export default function RequestDetailPage() {
           isVerified={user.verification_status === "verified"}
           onBidSuccess={handleBidSuccess}
           showBidSidebar={isContractor}
+          isCustomer={isCustomer}
           onAwarded={handleAwarded}
           onWithdrawSuccess={handleWithdrawSuccess}
+          onSubmitResultSuccess={handleSubmitResultSuccess}
         />
       ) : null}
     </div>

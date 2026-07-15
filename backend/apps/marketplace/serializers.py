@@ -288,10 +288,14 @@ class RequestFeedDetailSerializer(RequestFeedSerializer):
     ленты/RequestFeedSerializer, где my_bid сознательно не добавлен —
     20 строк на странице означали бы 20 лишних запросов).
 
-    ВНЕ СКОУПА этого добавления: раскрытие Request.status победителю (нужно
-    для будущего экрана сдачи результата) — отдельная задача, здесь не
-    делается. Пятисостояниевая «честная панель» на фронте строится целиком
-    из my_bid.status/considered_at, Request.status ей не требуется."""
+    status/result_files/result_note раскрываются ТОЛЬКО победителю — условие
+    строго instance.assigned_contractor_id == viewer.id, НЕ «есть my_bid».
+    Обе ветки живут в одном to_representation, но с разными условиями:
+    my_bid есть у любого откликнувшегося (включая проигравших), а эти три
+    поля — только у того, кого выбрали. Перепутать условия значит повторить
+    утечку статуса заявки проигравшему (инвариант №9) — то же самое, что уже
+    проверялось живым devtools-тестом на заявке 32 (проигравший видит my_bid,
+    но не status/assigned_contractor/result_files/result_note)."""
     site_geometry = GeometryField(source="site.geometry", read_only=True)
 
     class Meta(RequestFeedSerializer.Meta):
@@ -310,6 +314,10 @@ class RequestFeedDetailSerializer(RequestFeedSerializer):
             my_bid = Bid.objects.filter(request=instance, contractor=viewer).first()
             if my_bid:
                 data["my_bid"] = MyBidBriefSerializer(my_bid).data
+            if instance.assigned_contractor_id == viewer.id:
+                data["status"] = instance.status
+                data["result_files"] = ResultFileSerializer(instance.result_files.all(), many=True).data
+                data["result_note"] = instance.result_note
         return data
 
 

@@ -65,6 +65,15 @@ export interface MyBidBrief {
   considered_at: string | null;
 }
 
+/** Файл результата — ResultFileSerializer на бэкенде. `file` — уже готовый
+ * абсолютный URL (тот же механизм, что и tz_file: string). */
+export interface ResultFile {
+  id: number;
+  file: string;
+  original_name: string;
+  uploaded_at: string;
+}
+
 /** Детали заявки — GET /marketplace/requests/{id}/, только GET одной заявки,
  * не список. Один эндпоинт, но РАЗНЫЕ Django-сериализаторы по роли/владению
  * заявкой (RequestSerializer — заказчик, своя; RequestFeedDetailSerializer —
@@ -77,16 +86,20 @@ export interface MyBidBrief {
  * серализатора обязаны его включать (см. комментарий у FeedRequest.geometry). */
 export interface FeedRequestDetail extends FeedRequest {
   site_geometry?: GeoJSON.Geometry | null;
-  /** Эти три поля отдаёт ТОЛЬКО RequestSerializer — то есть только когда
-   * заказчик смотрит СВОЮ заявку (инвариант №9: у контрактора и у заказчика
-   * в чужой заявке через ?scope=feed статус не отдаётся вообще, чтобы не
-   * протекала информация о ходе рассмотрения). Поэтому "status" in response
-   * — уже готовый признак «это владелец, полный вид», отдельного поля вроде
-   * is_owner заводить не нужно. bids_count/assigned_contractor — из той же
-   * RequestSerializer.Meta.fields (см. backend/apps/marketplace/serializers.py). */
+  /** status/result_files/result_note присутствуют в ДВУХ разных случаях,
+   * с разным условием на бэкенде:
+   * 1) RequestSerializer — заказчик смотрит СВОЮ заявку ("status" in response
+   *    уже готовый признак «это владелец, полный вид», is_owner не нужен).
+   * 2) RequestFeedDetailSerializer, ветка assigned_contractor_id === viewer.id —
+   *    исполнитель-ПОБЕДИТЕЛЬ смотрит заявку, которую выиграл (инвариант №9:
+   *    проигравший это же поле не получает структурно, см. backend
+   *    RequestFeedDetailSerializer.to_representation).
+   * bids_count/assigned_contractor — только у заказчика (случай 1). */
   status?: MyRequest["status"];
   bids_count?: number;
   assigned_contractor?: number | null;
+  result_files?: ResultFile[];
+  result_note?: string;
   /** Только для роли contractor, только если он откликался — см.
    * MyBidBrief. Отсутствует у заказчика и у исполнителя без отклика. */
   my_bid?: MyBidBrief;
@@ -218,6 +231,23 @@ export async function awardBid(requestId: number, bidId: number): Promise<{ stat
   return apiFetch<{ status: string }>(`/marketplace/requests/${requestId}/award/`, {
     method: "POST",
     body: JSON.stringify({ bid_id: bidId }),
+  });
+}
+
+/** POST .../submit-result/ — только status=AWARDED на бэкенде (см.
+ * backend/apps/marketplace/views.py::SubmitResultView): ПОКА заявка в
+ * result_submitted, повторный вызов вернёт 404 — «досдать файлы» возможно
+ * только после возврата на доработку (ReturnView переводит обратно в
+ * awarded), не в любой момент. Ключ result_files повторяется на каждый
+ * файл (request.FILES.getlist("result_files") на бэкенде), как и paths
+ * в createRequest — тот же паттерн multipart через FormData. */
+export async function submitResult(requestId: number, files: File[], note: string): Promise<{ status: string }> {
+  const formData = new FormData();
+  files.forEach((f) => formData.append("result_files", f));
+  if (note.trim()) formData.append("result_note", note.trim());
+  return apiFetch<{ status: string }>(`/marketplace/requests/${requestId}/submit-result/`, {
+    method: "POST",
+    body: formData,
   });
 }
 
