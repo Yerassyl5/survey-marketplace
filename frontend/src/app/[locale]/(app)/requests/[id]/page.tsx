@@ -19,6 +19,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { useParams } from "next/navigation";
 
 import { Alert } from "@/components/ui/Alert";
+import { FileLink } from "@/components/ui/FileLink";
 import { formatDate, WORK_TYPE_LABELS, WorkTypeBadge } from "@/components/ui/RequestRow";
 import { SiteMap } from "@/components/ui/SiteMap";
 import { BidForm } from "@/components/marketplace/BidForm";
@@ -57,6 +58,23 @@ function Card({ title, children }: { title: string; children: ReactNode }) {
       {children}
     </div>
   );
+}
+
+/** tz_file — presigned MinIO URL, оригинальное имя файла на модели не хранится
+ * (в отличие от ResultFile.original_name) — MinIO file_overwrite=True, поэтому
+ * ключ в бакете почти всегда совпадает с очищенным оригинальным именем;
+ * достаём basename до query-параметров подписи. null — если имя не
+ * вытащилось (пустой basename, кривая %-последовательность и т.п.), тогда
+ * вызывающая сторона подставляет плейсхолдер. */
+function fileNameFromUrl(url: string): string | null {
+  try {
+    const path = url.split("?")[0];
+    const last = path.split("/").pop() ?? "";
+    const decoded = decodeURIComponent(last);
+    return decoded || null;
+  } catch {
+    return null;
+  }
 }
 
 const backLinkStyle: CSSProperties = {
@@ -319,27 +337,7 @@ function DetailContent({
 
           <Card title="Техническое задание">
             {request.tz_file ? (
-              <a
-                href={request.tz_file}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
-                  fontFamily: "var(--ds-font-body)",
-                  fontSize: 14,
-                  fontWeight: 600,
-                  color: "var(--ds-blue)",
-                }}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="7 10 12 15 17 10" />
-                  <line x1="12" y1="15" x2="12" y2="3" />
-                </svg>
-                Скачать ТЗ
-              </a>
+              <FileLink href={request.tz_file} name={fileNameFromUrl(request.tz_file) ?? "Техническое задание"} />
             ) : (
               <p style={{ fontFamily: "var(--ds-font-body)", fontSize: 14, color: "var(--ds-text-muted)", margin: 0 }}>
                 Файл не приложен.

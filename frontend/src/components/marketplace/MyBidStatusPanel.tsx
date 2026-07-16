@@ -34,6 +34,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { formatDate } from "@/components/ui/RequestRow";
 import { useRouter as useI18nRouter } from "@/i18n/navigation";
 import { AuthRequiredError } from "@/lib/api/client";
@@ -46,24 +47,42 @@ type PanelTone = "active" | "review" | "done";
 function getStatusMessage(
   bid: Pick<MyBidBrief, "status" | "considered_at">,
   requestStatus: MyRequest["status"] | undefined,
-): { text: string; tone: PanelTone } {
+): { heading: string; body?: string; tooltip?: string; tone: PanelTone } {
   if (bid.status === "selected") {
     if (requestStatus === "result_submitted") {
-      return { text: "Результат отправлен, ждём подтверждения заказчика", tone: "review" };
+      return { heading: "Результат отправлен, ждём подтверждения заказчика", tone: "review" };
     }
     if (requestStatus === "accepted") {
-      return { text: "Заявка закрыта, результат принят", tone: "done" };
+      return { heading: "Заявка закрыта, результат принят", tone: "done" };
     }
-    return { text: "Вас выбрали исполнителем", tone: "active" };
+    return {
+      heading: "Поздравляем, вас выбрали исполнителем!",
+      body: "После того как выполните все работы на объекте, сдайте результат — приложите все сопутствующие файлы в форме сдачи ниже на этой странице.",
+      tone: "active",
+    };
   }
   if (bid.status === "rejected") {
+    // Различие двух веток — по considered_at, НЕ по факту раскрытия цены/срока/комментария:
+    // это заказчик видит у ВСЕХ откликов всегда. considered_at означает, что заказчик раскрыл
+    // телефон исполнителя (см. ConsiderBidView) — то есть предложение заинтересовало настолько,
+    // чтобы связаться, а не просто было просмотрено в списке.
     return bid.considered_at
-      ? { text: "Заказчик рассмотрел ваш отклик, но выбрал другого исполнителя", tone: "done" }
-      : { text: "Заказчик выбрал другого исполнителя, не рассматривая ваш отклик", tone: "done" };
+      ? {
+          heading: "Заказчик рассмотрел ваш отклик, но выбрал другого исполнителя",
+          tooltip:
+            "Ваше предложение заинтересовало заказчика — он раскрыл ваш контакт для связи. Но в итоге выбрал другого исполнителя. На этом шаге цена и срок уже устроили заказчика; решают обычно другие факторы — статус верификации, портфолио, отзывы, опыт на похожих объектах или условия других исполнителей. Заполненный профиль и пройденная верификация повышают шансы в следующий раз.",
+          tone: "done",
+        }
+      : {
+          heading: "Заказчик выбрал другого исполнителя, не рассматривая ваш отклик",
+          tooltip:
+            "Заказчик видел ваше предложение, но не заинтересовался настолько, чтобы связаться с вами. Чаще всего на этом шаге решают цена и срок. Цена, резко выбивающаяся из других откликов, настораживает: слишком низкая читается как неопытность или спешка, слишком высокая — как переплата. Стоит свериться, насколько ваше предложение соответствует рыночному, и обратить внимание на срок и комментарий к отклику.",
+          tone: "done",
+        };
   }
   return bid.considered_at
-    ? { text: "Заказчик рассматривает ваш отклик", tone: "review" }
-    : { text: "Ваш отклик отправлен, заказчик его ещё не рассмотрел", tone: "done" };
+    ? { heading: "Заказчик рассматривает ваш отклик", tone: "review" }
+    : { heading: "Ваш отклик отправлен, заказчик его ещё не рассмотрел", tone: "done" };
 }
 
 // Токены переиспользованы из уже существующей палитры — те же семьи, что
@@ -87,7 +106,7 @@ export function MyBidStatusPanel({ bid, requestStatus, onWithdrawSuccess }: MyBi
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
 
   const canWithdraw = bid.status === "pending" && !bid.considered_at;
-  const { text, tone } = getStatusMessage(bid, requestStatus);
+  const { heading, body, tooltip, tone } = getStatusMessage(bid, requestStatus);
   const toneVars = TONE_VARS[tone];
 
   async function handleWithdraw() {
@@ -122,17 +141,31 @@ export function MyBidStatusPanel({ bid, requestStatus, onWithdrawSuccess }: MyBi
     >
       <div
         style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: body ? 6 : 0,
           padding: "14px 16px",
           borderRadius: "var(--ds-r-md)",
           background: toneVars.bg,
           color: toneVars.color,
           fontFamily: "var(--ds-font-body)",
-          fontSize: 14,
-          fontWeight: 600,
-          lineHeight: 1.4,
         }}
       >
-        {text}
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: 6,
+            position: tooltip ? "relative" : undefined,
+          }}
+        >
+          <span style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.4 }}>{heading}</span>
+          {tooltip && <InfoTooltip text={tooltip} placement="bottom" />}
+        </div>
+        {body && (
+          <p style={{ fontSize: 13, fontWeight: 400, lineHeight: 1.5, margin: 0 }}>{body}</p>
+        )}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
