@@ -110,8 +110,8 @@ export function ResultReviewCard({
           style={{
             padding: "14px 16px",
             borderRadius: "var(--ds-r-md)",
-            background: "var(--ds-active-bg)",
-            color: "var(--ds-active-text)",
+            background: "var(--ds-success-bg)",
+            color: "var(--ds-success)",
             fontFamily: "var(--ds-font-body)",
             fontSize: 14,
             fontWeight: 600,
@@ -179,7 +179,7 @@ export function ResultReviewCard({
       <ConfirmDialog
         open={acceptOpen}
         title="Принять результат?"
-        description="Действие необратимо — сделка будет закрыта, вернуть заявку на доработку станет нельзя."
+        description="Действие необратимо — заявка перейдёт в статус «Закрыта»."
         confirmLabel="Принять"
         cancelLabel="Отмена"
         isConfirming={isSubmitting}

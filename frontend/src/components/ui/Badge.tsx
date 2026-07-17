@@ -18,15 +18,20 @@ export type RequestStatus =
   | "Новая"
   | "Ждёт рассмотрения"
   | "В работе"
-  | "Результат сдан"
-  | "Принята";
+  | "Результат сдан, примите работу"
+  | "Закрыта";
 
 const STATUS_VARS: Record<RequestStatus, { bg: string; color: string }> = {
-  "Новая":              { bg: "var(--ds-new-bg)",    color: "var(--ds-new-text)"    },
-  "Ждёт рассмотрения":  { bg: "var(--ds-review-bg)", color: "var(--ds-review-text)" },
-  "В работе":           { bg: "var(--ds-active-bg)", color: "var(--ds-active-text)" },
-  "Результат сдан":     { bg: "var(--ds-select-bg)", color: "var(--ds-select-text)" },
-  "Принята":            { bg: "var(--ds-done-bg)",   color: "var(--ds-done-text)"   },
+  "Новая":                            { bg: "var(--ds-new-bg)",    color: "var(--ds-new-text)"    },
+  "Ждёт рассмотрения":                { bg: "var(--ds-review-bg)", color: "var(--ds-review-text)" },
+  // --ds-progress (индиго), НЕ --ds-active — тот красит статус ОТКЛИКА
+  // («Выбран»/«Рассмотрен»/«Поздравляем» в MyBidStatusPanel/BidsPanel) —
+  // другой смысл (позитив/успех отклика), чем «идёт процесс» у заявки.
+  "В работе":                         { bg: "var(--ds-progress-bg)", color: "var(--ds-progress-text)" },
+  "Результат сдан, примите работу":   { bg: "var(--ds-select-bg)", color: "var(--ds-select-text)" },
+  // --ds-success (изумрудный) — отдельный от --ds-progress выше и от
+  // --ds-active, три разных состояния не должны делить цвет.
+  "Закрыта":                          { bg: "var(--ds-success-bg)", color: "var(--ds-success)"    },
 };
 
 const BADGE_BASE: CSSProperties = {

@@ -42,7 +42,7 @@ import { withdrawBid } from "@/lib/api/marketplace";
 import type { MyBidBrief, MyRequest } from "@/lib/api/marketplace";
 import { ApiError } from "@/lib/api/types";
 
-type PanelTone = "active" | "review" | "done";
+type PanelTone = "active" | "review" | "done" | "success";
 
 function getStatusMessage(
   bid: Pick<MyBidBrief, "status" | "considered_at">,
@@ -53,7 +53,10 @@ function getStatusMessage(
       return { heading: "Результат отправлен, ждём подтверждения заказчика", tone: "review" };
     }
     if (requestStatus === "accepted") {
-      return { heading: "Заявка закрыта, результат принят", tone: "done" };
+      // "success" (изумрудный) — отдельный тон от "active" (тот занят
+      // "поздравляем, вас выбрали", т.е. "в процессе"): закрытая сделка
+      // должна отличаться и от rejected ("done"), и от "в работе" ("active").
+      return { heading: "Заявка закрыта, результат принят", tone: "success" };
     }
     return {
       heading: "Поздравляем, вас выбрали исполнителем!",
@@ -91,6 +94,7 @@ const TONE_VARS: Record<PanelTone, { bg: string; color: string }> = {
   active: { bg: "var(--ds-active-bg)", color: "var(--ds-active-text)" },
   review: { bg: "var(--ds-review-bg)", color: "var(--ds-review-text)" },
   done: { bg: "var(--ds-done-bg)", color: "var(--ds-done-text)" },
+  success: { bg: "var(--ds-success-bg)", color: "var(--ds-success)" },
 };
 
 export interface MyBidStatusPanelProps {

@@ -35,8 +35,8 @@ export const STATUS_LABELS: Record<MyRequest["status"], StatusLabel> = {
   // исполнителей» описывало бы намерение, а не факт (обсуждалось и отклонено).
   under_review: "Ждёт рассмотрения",
   awarded: "В работе",
-  result_submitted: "Результат сдан",
-  accepted: "Принята",
+  result_submitted: "Результат сдан, примите работу",
+  accepted: "Закрыта",
 };
 
 export function WorkTypeBadge({ workType }: { workType: WorkType }) {
