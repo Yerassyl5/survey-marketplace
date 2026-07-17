@@ -17,7 +17,7 @@ from apps.geo.models import City, District, Region
 from apps.sites.models import Site
 
 from .events import BidConsidered, BidWithdrawn, ResultReturned
-from .models import Bid, BidStatus, LocationType, Request, RequestStatus
+from .models import Bid, BidStatus, LocationType, Request, RequestStatus, ResultEntryKind
 
 
 def make_customer(email="customer@test.kz"):
@@ -294,6 +294,46 @@ class RequestLifecycleTest(TestCase):
         self.assertEqual(r.data["result_files"], [])
         self.assertEqual(r.data["result_note"], "")
         self.assertIn("my_bid", r.data)
+
+    def test_winner_sees_result_entries_loser_does_not(self):
+        """Инвариант №9 на ЛЕНТЕ РЕЗУЛЬТАТА конкретно — не полагаемся на то, что
+        assert'ы в test_return_note_visible_to_winner_not_to_loser это уже
+        косвенно проверили (тот тест назван и сфокусирован на return_note).
+        Фронт тянет result_entries тем же detail-эндпоинтом, где уже дважды
+        находили дыры (Блок 5 — status/result_files/result_note, эта сессия —
+        return_note) — отдельный именованный тест ОБЯЗАТЕЛЕН, тот же паттерн,
+        что test_winner_sees_status_result_files_and_note /
+        test_rejected_contractor_sees_own_bid_not_request_status."""
+        req = self._create_request()
+        winner_bid = Bid.objects.create(
+            request=req, contractor=self.contractor, price=100000, deadline_days=10,
+            considered_at=timezone.now(),
+        )
+        loser = make_contractor("loser-entries@test.kz")
+        Bid.objects.create(
+            request=req, contractor=loser, price=95000, deadline_days=9, considered_at=timezone.now(),
+        )
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.UNDER_REVIEW)
+        self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": winner_bid.id}, format="json")
+        file = SimpleUploadedFile("report.pdf", b"fake pdf content", content_type="application/pdf")
+        self.client_e.post(f"/api/marketplace/requests/{req.id}/submit-result/", {
+            "result_files": file, "result_note": "Отчёт готов",
+        })
+
+        r_winner = self.client_e.get(f"/api/marketplace/requests/{req.id}/")
+        self.assertEqual(r_winner.status_code, 200)
+        self.assertIn("result_entries", r_winner.data)
+        self.assertEqual(len(r_winner.data["result_entries"]), 1)
+        self.assertEqual(r_winner.data["result_entries"][0]["kind"], "submitted")
+        self.assertEqual(r_winner.data["result_entries"][0]["text"], "Отчёт готов")
+        self.assertEqual(len(r_winner.data["result_entries"][0]["files"]), 1)
+
+        loser_client = APIClient()
+        loser_client.force_authenticate(user=loser)
+        r_loser = loser_client.get(f"/api/marketplace/requests/{req.id}/")
+        self.assertEqual(r_loser.status_code, 200)
+        self.assertNotIn("result_entries", r_loser.data)
+        self.assertIn("my_bid", r_loser.data)
 
     def test_bidder_sees_no_status_while_under_review(self):
         """До award (assigned_contractor is None) условие раскрытия не может
@@ -1011,6 +1051,41 @@ class RequestLifecycleTest(TestCase):
         }, format="json")
         self.assertEqual(r.status_code, 400)
 
+    def test_resubmit_without_return_appends_to_same_entry(self):
+        """Досдача БЕЗ промежуточного возврата (забыл файл, заказчик ещё не отреагировал) —
+        не создаёт второе submit-событие, добавляет файлы к уже открытому. Комментарий
+        второй сдачи ДОПИСЫВАЕТСЯ (не заменяет и не игнорируется). Пара с
+        test_full_cycle_creates_four_entries_in_order, где return МЕЖДУ сдачами даёт 2
+        отдельных submit-события — контраст показывает, что рвёт серию именно return."""
+        req, bid = self._setup_bid()
+        self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": bid.id}, format="json")
+
+        file1 = SimpleUploadedFile("report1.pdf", b"first", content_type="application/pdf")
+        r = self.client_e.post(f"/api/marketplace/requests/{req.id}/submit-result/", {
+            "result_files": file1, "result_note": "Отчёт готов",
+        })
+        self.assertEqual(r.status_code, 200)
+        req.refresh_from_db()
+        self.assertEqual(req.status, RequestStatus.RESULT_SUBMITTED)
+
+        file2 = SimpleUploadedFile("report_addendum.pdf", b"second", content_type="application/pdf")
+        r = self.client_e.post(f"/api/marketplace/requests/{req.id}/submit-result/", {
+            "result_files": file2, "result_note": "Забыл приложить координаты",
+        })
+        self.assertEqual(r.status_code, 200)
+        req.refresh_from_db()
+        self.assertEqual(req.status, RequestStatus.RESULT_SUBMITTED)
+
+        entries = list(req.result_entries.all())
+        self.assertEqual(len(entries), 1)
+        entry = entries[0]
+        self.assertEqual(entry.kind, ResultEntryKind.SUBMITTED)
+        self.assertEqual(entry.text, "Отчёт готов\n\nЗабыл приложить координаты")
+        self.assertEqual(
+            sorted(entry.files.values_list("original_name", flat=True)),
+            ["report1.pdf", "report_addendum.pdf"],
+        )
+
     def test_customer_cannot_submit_result(self):
         req, bid = self._setup_bid()
         self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": bid.id}, format="json")
@@ -1044,7 +1119,11 @@ class RequestLifecycleTest(TestCase):
         self.assertEqual(r.status_code, 200)
         req.refresh_from_db()
         self.assertEqual(req.status, RequestStatus.AWARDED)
-        self.assertEqual(req.return_note, "Не хватает координат углов")
+        # return_note больше не пишется в Request (поле заморожено, удаляется в подшаге 3) —
+        # причина возврата теперь живёт в ResultEntry.
+        entry = req.result_entries.get(kind=ResultEntryKind.RETURNED)
+        self.assertEqual(entry.text, "Не хватает координат углов")
+        self.assertEqual(entry.author, self.customer)
 
     def test_return_requires_note(self):
         """Возврат без причины бессмыслен — исполнитель сдаст то же самое повторно
@@ -1061,6 +1140,9 @@ class RequestLifecycleTest(TestCase):
         req.refresh_from_db()
         self.assertEqual(req.status, RequestStatus.RESULT_SUBMITTED)
         self.assertEqual(req.return_note, "")
+        # Ни одна из двух неудачных попыток не должна была создать ResultEntry —
+        # проверка text обязана стоять ДО .create(), не после.
+        self.assertFalse(req.result_entries.filter(kind=ResultEntryKind.RETURNED).exists())
 
     def test_return_rejected_when_accepted(self):
         """Из accepted (терминальный статус) вернуть нельзя — тот же фильтр
@@ -1087,9 +1169,10 @@ class RequestLifecycleTest(TestCase):
     def test_return_note_visible_to_winner_not_to_loser(self):
         """Та же гарантия инварианта №9, что уже проверена для status/result_files/
         result_note (см. test_winner_sees_status_result_files_and_note /
-        test_rejected_contractor_sees_own_bid_not_request_status) — return_note
+        test_rejected_contractor_sees_own_bid_not_request_status) — result_entries
         раскрывается по тому же условию (assigned_contractor_id == viewer.id),
-        добавлена в ту же ветку, поэтому проигравший её тоже не должен получить."""
+        добавлена в ту же ветку, поэтому проигравший её тоже не должен получить.
+        return_note (поле Request) больше не пишется — причина живёт в result_entries."""
         req = self._create_request()
         winner_bid = Bid.objects.create(
             request=req, contractor=self.contractor, price=100000, deadline_days=10,
@@ -1106,11 +1189,14 @@ class RequestLifecycleTest(TestCase):
         self.client_c.post(f"/api/marketplace/requests/{req.id}/return/", {"return_note": "Добавьте профиль скважины"}, format="json")
 
         r_winner = self.client_e.get(f"/api/marketplace/requests/{req.id}/")
-        self.assertEqual(r_winner.data["return_note"], "Добавьте профиль скважины")
+        returned_entries = [e for e in r_winner.data["result_entries"] if e["kind"] == "returned"]
+        self.assertEqual(len(returned_entries), 1)
+        self.assertEqual(returned_entries[0]["text"], "Добавьте профиль скважины")
 
         loser_client = APIClient()
         loser_client.force_authenticate(user=loser)
         r_loser = loser_client.get(f"/api/marketplace/requests/{req.id}/")
+        self.assertNotIn("result_entries", r_loser.data)
         self.assertNotIn("return_note", r_loser.data)
         self.assertIn("my_bid", r_loser.data)
 
@@ -1127,11 +1213,15 @@ class RequestLifecycleTest(TestCase):
         self.assertIsInstance(published, ResultReturned)
         self.assertEqual(published.return_note, "Причина X")
 
-    def test_second_return_cycle_overwrites_note(self):
-        """Полный повторный цикл: awarded → submit → result_submitted → return →
-        awarded → submit → result_submitted, без 404/409 ни на одном шаге.
-        Вторая причина возврата ПЕРЕЗАПИСЫВАЕТ первую (п.1 плана, прецедент
-        result_note) — не накапливается."""
+    def test_full_cycle_creates_four_entries_in_order(self):
+        """Полный цикл submit → return → submit → accept создаёт РОВНО 4 ResultEntry
+        в правильном порядке (submitted, returned, submitted, accepted) — включая
+        AcceptView, который тоже создаёт запись (text=""), иначе цикл давал бы только
+        3 события. Файлы каждой сдачи привязаны к СВОЕМУ событию, не перемешаны —
+        то, ради чего вообще заводили ResultFile.event (заявка #38, найдено 2026-07-17:
+        два файла с интервалом 51 секунда, один синтетический submit склеил бы их
+        неверно). author — соответствующая роль (kind это гарантирует структурно, не
+        сравнением с assigned_contractor)."""
         req, bid = self._setup_bid()
         self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": bid.id}, format="json")
 
@@ -1143,19 +1233,35 @@ class RequestLifecycleTest(TestCase):
         self.assertEqual(r.status_code, 200)
         req.refresh_from_db()
         self.assertEqual(req.status, RequestStatus.AWARDED)
-        self.assertEqual(req.return_note, "Причина 1")
 
         file2 = SimpleUploadedFile("report2.pdf", b"second", content_type="application/pdf")
         r = self.client_e.post(f"/api/marketplace/requests/{req.id}/submit-result/", {"result_files": file2})
         self.assertEqual(r.status_code, 200)
         req.refresh_from_db()
         self.assertEqual(req.status, RequestStatus.RESULT_SUBMITTED)
-        self.assertEqual(req.result_files.count(), 2)  # накопление, не замена (find E прошлой сессии)
 
-        r = self.client_c.post(f"/api/marketplace/requests/{req.id}/return/", {"return_note": "Причина 2"}, format="json")
+        r = self.client_c.post(f"/api/marketplace/requests/{req.id}/accept/")
         self.assertEqual(r.status_code, 200)
         req.refresh_from_db()
-        self.assertEqual(req.return_note, "Причина 2")  # перезаписано, не "Причина 1; Причина 2"
+        self.assertEqual(req.status, RequestStatus.ACCEPTED)
+
+        entries = list(req.result_entries.all())  # Meta.ordering = created_at
+        self.assertEqual(len(entries), 4)
+        self.assertEqual(
+            [e.kind for e in entries],
+            [ResultEntryKind.SUBMITTED, ResultEntryKind.RETURNED, ResultEntryKind.SUBMITTED, ResultEntryKind.ACCEPTED],
+        )
+        submit1, returned, submit2, accepted = entries
+        self.assertEqual(submit1.author, self.contractor)
+        self.assertEqual(returned.author, self.customer)
+        self.assertEqual(returned.text, "Причина 1")
+        self.assertEqual(submit2.author, self.contractor)
+        self.assertEqual(accepted.author, self.customer)
+        self.assertEqual(accepted.text, "")
+
+        # Файлы каждой сдачи — у СВОЕГО события, не перемешаны.
+        self.assertEqual(list(submit1.files.values_list("original_name", flat=True)), ["report1.pdf"])
+        self.assertEqual(list(submit2.files.values_list("original_name", flat=True)), ["report2.pdf"])
 
     # ------------------------------------------------------------------
     # Мои отклики (исполнитель)

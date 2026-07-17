@@ -354,32 +354,56 @@ function DetailContent({
             <SiteMap geometry={geometry} />
           </Card>
 
-          {/* Только для победителя (my_bid.status === "selected") — форма
-             сдачи/список файлов, отдельная карточка от статус-панели
-             сайдбара (замечание 1: MultiFilePicker тесен в 320px). */}
+          {/* Отклики — ВНУТРИ левой колонки (та же ширина, что у Описание/ТЗ/
+             Карты/Результата ниже), не отдельным полноширинным блоком: тот
+             прежний вариант физически стоял ПОСЛЕ всего двухколоночного ряда
+             и поэтому а) визуально оказывался НИЖЕ «Результата» (наоборот
+             задуманному порядку) и б) был шире остальных карточек (не
+             ограничен flex:"2 1 480px" этой колонки). Якорь #bids-panel —
+             тот же, ссылка «Смотреть отклики» в BidsSummaryCard не менялась. */}
+          {isOwnerView && (
+            <div id="bids-panel">
+              <BidsPanel
+                requestId={request.id}
+                requestStatus={request.status!}
+                bidsCount={request.bids_count ?? 0}
+                onAwarded={onAwarded}
+              />
+            </div>
+          )}
+
+          {/* Только для победителя (my_bid.status === "selected") — лента+форма
+             сдачи, отдельная карточка от статус-панели сайдбара (замечание 1:
+             MultiFilePicker тесен в 320px). НИЖЕ откликов — тот же порядок
+             секций, что и у заказчика (см. ResultReviewCard ниже). */}
           {request.my_bid?.status === "selected" && request.status && (
             <ResultSubmissionCard
               requestId={request.id}
               requestStatus={request.status}
-              resultFiles={request.result_files}
-              resultNote={request.result_note}
+              resultEntries={request.result_entries ?? []}
               onSubmitResultSuccess={onSubmitResultSuccess}
             />
           )}
 
-          {/* Заказчик-владелец, симметрично ResultSubmissionCard выше — только
-             когда результат уже сдан (на awarded файлов ещё нет, карточку не
-             показываем вовсе, см. docs/progress.md). */}
-          {isOwnerView && (request.status === "result_submitted" || request.status === "accepted") && (
+          {/* Заказчик-владелец, симметрично ResultSubmissionCard выше — для всей
+             заявки с назначенным исполнителем (awarded/result_submitted/accepted),
+             не только "уже сдано": блок не должен исчезать после возврата, и на
+             awarded без сдач заказчику нужно видеть, что работа началась.
+             НИЖЕ Отклики — финальный порядок секций: Описание/ТЗ/Карта →
+             Отклики → Результат. */}
+          {isOwnerView && request.status && request.status !== "open" && request.status !== "under_review" && (
             <ResultReviewCard
               requestId={request.id}
               requestStatus={request.status}
-              resultFiles={request.result_files ?? []}
-              resultNote={request.result_note ?? ""}
+              resultEntries={request.result_entries ?? []}
               onAcceptSuccess={onAcceptSuccess}
               onReturnSuccess={onReturnSuccess}
             />
           )}
+
+          {/* Задел под будущий блок отзыва об исполнителе (1.10, репутация) —
+             сам блок не строим сейчас, но место в порядке секций закреплено:
+             встанет здесь, ниже Результата, без переверстки. */}
         </div>
 
         {(showBidSidebar || isOwnerView) && (
@@ -394,17 +418,6 @@ function DetailContent({
           </div>
         )}
       </div>
-
-      {isOwnerView && (
-        <div id="bids-panel">
-          <BidsPanel
-            requestId={request.id}
-            requestStatus={request.status!}
-            bidsCount={request.bids_count ?? 0}
-            onAwarded={onAwarded}
-          />
-        </div>
-      )}
     </div>
   );
 }

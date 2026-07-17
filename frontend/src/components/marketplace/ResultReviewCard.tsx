@@ -1,11 +1,24 @@
 "use client";
 
 /* ────────────────────────────────────────────────────────────────────────
-   ResultReviewCard.tsx — просмотр сданного результата ЗАКАЗЧИКОМ, основная
-   колонка /requests/[id] (тот же слот, что ResultSubmissionCard у
-   исполнителя — симметрично по роли). Рендерится ТОЛЬКО при status ∈
-   {result_submitted, accepted} — на awarded файлов ещё нет, карточка не
-   рендерится вовсе (см. DetailContent в page.tsx).
+   ResultReviewCard.tsx — карточка результата в ОСНОВНОЙ колонке
+   /requests/[id] у ЗАКАЗЧИКА-владельца (тот же слот, что
+   ResultSubmissionCard у исполнителя — симметрично по роли). Рендерится
+   для всей заявки с назначенным исполнителем (awarded/result_submitted/
+   accepted) — раньше рендерилась только на result_submitted/accepted,
+   теперь и на awarded тоже, иначе блок исчезал ровно там, где заказчику
+   нужнее всего видеть, что работа идёт (и не показывать пустой рельс
+   ленты, когда сдач ещё не было вовсе).
+
+   Ветвится:
+   - 0 записей (awarded, ещё не сдавал) — тихий текст, лента не рисуется.
+   - есть записи, "awarded" (после возврата) — только лента, действий нет
+     (ждём исполнителя).
+   - "result_submitted" — лента + кнопки «Принять»/«Вернуть на доработку».
+   - "accepted" — только лента, без действий и без отдельного баннера
+     «сделка закрыта» — финальная запись "Заказчик принял" в самой ленте
+     это уже говорит (решение 2026-07-17, тот же принцип, что и у
+     отсутствующего баннера причины возврата в ResultSubmissionCard).
 
    "Принять" — обычный ConfirmDialog (необратимо, без ввода), тем же
    паттерном, что award в BidsPanel. "Вернуть на доработку" —
@@ -17,12 +30,12 @@ import { useState } from "react";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { ResultFileList } from "@/components/marketplace/ResultFileList";
+import { ResultThread } from "@/components/marketplace/ResultThread";
 import { ReturnResultDialog } from "@/components/marketplace/ReturnResultDialog";
 import { useRouter as useI18nRouter } from "@/i18n/navigation";
 import { AuthRequiredError } from "@/lib/api/client";
 import { acceptResult, returnResult } from "@/lib/api/marketplace";
-import type { MyRequest, ResultFile } from "@/lib/api/marketplace";
+import type { MyRequest, ResultEntry } from "@/lib/api/marketplace";
 import { ApiError } from "@/lib/api/types";
 
 const cardStyle = {
@@ -42,9 +55,8 @@ const titleStyle = {
 
 export interface ResultReviewCardProps {
   requestId: number;
-  requestStatus: Extract<MyRequest["status"], "result_submitted" | "accepted">;
-  resultFiles: ResultFile[];
-  resultNote: string;
+  requestStatus: Extract<MyRequest["status"], "awarded" | "result_submitted" | "accepted">;
+  resultEntries: ResultEntry[];
   onAcceptSuccess: () => void;
   onReturnSuccess: () => void;
 }
@@ -52,8 +64,7 @@ export interface ResultReviewCardProps {
 export function ResultReviewCard({
   requestId,
   requestStatus,
-  resultFiles,
-  resultNote,
+  resultEntries,
   onAcceptSuccess,
   onReturnSuccess,
 }: ResultReviewCardProps) {
@@ -63,7 +74,8 @@ export function ResultReviewCard({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const isClosed = requestStatus === "accepted";
+  const hasEntries = resultEntries.length > 0;
+  const canAct = requestStatus === "result_submitted";
 
   async function handleAccept() {
     setIsSubmitting(true);
@@ -105,47 +117,15 @@ export function ResultReviewCard({
     <div style={cardStyle}>
       <h2 style={titleStyle}>Результат</h2>
 
-      {isClosed && (
-        <div
-          style={{
-            padding: "14px 16px",
-            borderRadius: "var(--ds-r-md)",
-            background: "var(--ds-success-bg)",
-            color: "var(--ds-success)",
-            fontFamily: "var(--ds-font-body)",
-            fontSize: 14,
-            fontWeight: 600,
-            marginBottom: 16,
-          }}
-        >
-          Результат принят, сделка закрыта
-        </div>
+      {hasEntries ? (
+        <ResultThread entries={resultEntries} />
+      ) : (
+        <p style={{ fontFamily: "var(--ds-font-body)", fontSize: 13.5, color: "var(--ds-text-muted)", margin: 0 }}>
+          Работа началась, ждём сдачи результата от исполнителя.
+        </p>
       )}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {resultFiles.length > 0 ? (
-          <ResultFileList files={resultFiles} />
-        ) : (
-          <p style={{ fontFamily: "var(--ds-font-body)", fontSize: 14, color: "var(--ds-text-muted)", margin: 0 }}>
-            Файлы не найдены.
-          </p>
-        )}
-        {resultNote && (
-          <p
-            style={{
-              fontFamily: "var(--ds-font-body)",
-              fontSize: 14,
-              color: "var(--ds-text-sec)",
-              margin: 0,
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {resultNote}
-          </p>
-        )}
-      </div>
-
-      {!isClosed && (
+      {canAct && (
         <>
           {actionError && (
             <div style={{ marginTop: 14 }}>

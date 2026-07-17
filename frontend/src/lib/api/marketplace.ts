@@ -74,6 +74,17 @@ export interface ResultFile {
   uploaded_at: string;
 }
 
+/** Запись ленты результата — ResultEntrySerializer (backend/apps/marketplace/serializers.py).
+ * author НЕ отдаётся — роль однозначно читается из kind (submitted → исполнитель,
+ * returned/accepted → заказчик), фронт уже знает обе стороны из контекста страницы. */
+export interface ResultEntry {
+  id: number;
+  kind: "submitted" | "returned" | "accepted";
+  text: string;
+  created_at: string;
+  files: ResultFile[];
+}
+
 /** Детали заявки — GET /marketplace/requests/{id}/, только GET одной заявки,
  * не список. Один эндпоинт, но РАЗНЫЕ Django-сериализаторы по роли/владению
  * заявкой (RequestSerializer — заказчик, своя; RequestFeedDetailSerializer —
@@ -102,8 +113,19 @@ export interface FeedRequestDetail extends FeedRequest {
   result_note?: string;
   /** Причина последнего возврата на доработку (ReturnView) — та же пара условий
    * раскрытия, что и у result_files/result_note выше. Пусто/отсутствует ⟺
-   * заявка ни разу не возвращалась (см. backend Request.return_note). */
+   * заявка ни разу не возвращалась (см. backend Request.return_note).
+   * @deprecated фронт больше не читает — источник истины теперь result_entries
+   * ниже (result_note/return_note заморожены на бэкенде с 2026-07-17, поле
+   * пока физически не удалено — уберётся вместе с ним отдельным подшагом). */
   return_note?: string;
+  /** Лента результата (сдал/вернул/принял, каждая запись со своими файлами и
+   * текстом) — та же пара условий раскрытия, что и result_files/result_note/
+   * return_note выше: заказчик-владелец видит всегда, исполнитель — только
+   * победитель (assigned_contractor_id === viewer.id), проигравшему не
+   * приходит вообще (инвариант №9, подтверждено тестом на detail-
+   * сериализаторе, не только curl). Заменяет result_files/result_note/
+   * return_note как источник для UI — те три поля фронт больше не читает. */
+  result_entries?: ResultEntry[];
   /** Только для роли contractor, только если он откликался — см.
    * MyBidBrief. Отсутствует у заказчика и у исполнителя без отклика. */
   my_bid?: MyBidBrief;

@@ -25,7 +25,7 @@ from .events import (
     ResultReturned,
     ResultSubmitted,
 )
-from .models import Bid, BidStatus, Request, RequestStatus, ResultFile
+from .models import Bid, BidStatus, Request, RequestStatus, ResultEntry, ResultEntryKind, ResultFile
 from .serializers import (
     BidCreateSerializer,
     BidCustomerSerializer,
@@ -469,12 +469,22 @@ class AwardView(APIView):
     ),
 )
 class SubmitResultView(APIView):
-    """Исполнитель сдаёт результат (файл + комментарий). Переводит заявку в result_submitted."""
+    """Исполнитель сдаёт результат (файл + комментарий). Переводит заявку в result_submitted.
+
+    Досдача БЕЗ промежуточного возврата (забыл файл, заказчик ещё не отреагировал) — НЕ
+    создаёт второе submit-событие, а добавляет файлы/комментарий к уже открытому. "Открытое"
+    submit-событие — это status == RESULT_SUBMITTED (единственный способ попасть в это
+    состояние — предыдущий вызов этой же вьюхи; ReturnView переводит обратно в AWARDED и
+    создаёт RETURNED-запись, после чего следующий submit открывает НОВОЕ событие). Один
+    логический эпизод сдачи = одна запись ленты, возврат — единственное, что эту серию рвёт.
+    created_at события НЕ обновляется на догрузке (auto_now_add трогается только при
+    создании) — дата "начала" сдачи, отдельные файлы несут свой uploaded_at."""
     permission_classes = [IsContractor]
 
     def post(self, request, pk):
         req = Request.objects.filter(
-            pk=pk, assigned_contractor=request.user, status=RequestStatus.AWARDED
+            pk=pk, assigned_contractor=request.user,
+            status__in=[RequestStatus.AWARDED, RequestStatus.RESULT_SUBMITTED],
         ).first()
         if not req:
             return Response({"detail": "Заявка не найдена или недоступна."}, status=status.HTTP_404_NOT_FOUND)
@@ -485,12 +495,23 @@ class SubmitResultView(APIView):
                 {"detail": "При первой сдаче необходимо прикрепить хотя бы один файл."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        note = (request.data.get("result_note") or "").strip()
+
+        if req.status == RequestStatus.RESULT_SUBMITTED:
+            # Досдача без возврата — открытое submit-событие точно есть (единственный
+            # способ попасть в result_submitted — этот же код, ниже).
+            entry = req.result_entries.filter(kind=ResultEntryKind.SUBMITTED).order_by("-created_at").first()
+            if note:
+                entry.text = f"{entry.text}\n\n{note}" if entry.text else note
+                entry.save(update_fields=["text"])
+        else:
+            entry = ResultEntry.objects.create(
+                request=req, author=request.user, kind=ResultEntryKind.SUBMITTED, text=note,
+            )
+
         for f in files:
-            ResultFile.objects.create(request=req, file=f, original_name=f.name)
-        Request.objects.filter(pk=req.pk).update(
-            status=RequestStatus.RESULT_SUBMITTED,
-            result_note=request.data.get("result_note", req.result_note),
-        )
+            ResultFile.objects.create(request=req, event=entry, file=f, original_name=f.name)
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.RESULT_SUBMITTED)
         publish(ResultSubmitted(request_id=req.id))
         return Response({"status": RequestStatus.RESULT_SUBMITTED})
 
@@ -506,6 +527,9 @@ class AcceptView(APIView):
         ).first()
         if not req:
             return Response({"detail": "Заявка не найдена или недоступна."}, status=status.HTTP_404_NOT_FOUND)
+        # Запись без текста — приёмка не сопровождается комментарием, но остаётся видимой
+        # отметкой в ленте (иначе цикл submit→return→submit→accept дал бы 3 события, не 4).
+        ResultEntry.objects.create(request=req, author=request.user, kind=ResultEntryKind.ACCEPTED, text="")
         Request.objects.filter(pk=req.pk).update(status=RequestStatus.ACCEPTED)
         publish(RequestAccepted(request_id=req.id))
         publish(DealCompleted(request_id=req.id))
@@ -540,6 +564,7 @@ class ReturnView(APIView):
                 {"detail": "Укажите причину возврата — без неё исполнитель не поймёт, что исправить."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        Request.objects.filter(pk=req.pk).update(status=RequestStatus.AWARDED, return_note=note)
+        ResultEntry.objects.create(request=req, author=request.user, kind=ResultEntryKind.RETURNED, text=note)
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.AWARDED)
         publish(ResultReturned(request_id=req.id, return_note=note))
         return Response({"status": RequestStatus.AWARDED})

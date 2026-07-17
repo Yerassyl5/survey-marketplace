@@ -137,9 +137,46 @@ class Bid(models.Model):
         return f"Отклик #{self.pk}: {self.contractor.email} → заявка #{self.request_id}"
 
 
+class ResultEntryKind(models.TextChoices):
+    SUBMITTED = "submitted", "Сдача результата"
+    RETURNED = "returned", "Возврат на доработку"
+    ACCEPTED = "accepted", "Приёмка результата"
+
+
+class ResultEntry(models.Model):
+    """Запись в ленте результата — «переписка» сдач/возвратов/приёмки, каждая со своими
+    файлами и текстом. Заменяет одиночные перезаписываемые Request.result_note/return_note
+    (те теряли историю при повторном возврате — 2026-07-17).
+
+    author хранится явно (не выводится сравнением с Request.assigned_contractor/customer) —
+    роль полностью определяется kind без сравнений: SUBMITTED физически может создать только
+    SubmitResultView (IsContractor), RETURNED/ACCEPTED — только ReturnView/AcceptView
+    (IsCustomer). author нужен не для роли, а как честная привязка личности на случай
+    будущего переназначения исполнителя/вмешательства модератора — сравнение с ТЕКУЩИМ
+    assigned_contractor задним числом переатрибутировало бы старые записи."""
+    request = models.ForeignKey(Request, on_delete=models.CASCADE, related_name="result_entries")
+    author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    kind = models.CharField(max_length=20, choices=ResultEntryKind.choices)
+    # SUBMITTED — комментарий опционален (как раньше result_note); RETURNED — обязателен
+    # (причина возврата, проверяется во вьюхе, не на уровне БД); ACCEPTED — всегда "".
+    text = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.get_kind_display()} #{self.pk} → заявка #{self.request_id}"
+
+
 class ResultFile(models.Model):
     """Файл результата работы исполнителя; один или несколько на одну заявку."""
     request = models.ForeignKey(Request, on_delete=models.CASCADE, related_name="result_files")
+    # Какая именно сдача принесла этот файл — nullable ради заявок, заведённых до этого поля
+    # (dev-БД, решение 2026-07-17: не бэкфиллить старые файлы синтетическими событиями —
+    # проверено фактом, что бэкфилл склеил бы разные сдачи в одну на заявке #38, решили не
+    # городить группировку по uploaded_at ради нескольких строк тестовых данных).
+    event = models.ForeignKey(ResultEntry, null=True, blank=True, on_delete=models.CASCADE, related_name="files")
     file = models.FileField(upload_to="marketplace/results/")
     original_name = models.CharField(max_length=255, blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)

@@ -10,7 +10,7 @@ from apps.accounts.models import Role
 from common.events import publish
 
 from .events import BidPlaced, RequestCreated
-from .models import Bid, LocationType, Request, ResultFile
+from .models import Bid, LocationType, Request, ResultEntry, ResultFile
 
 
 class ContractorBriefSerializer(serializers.Serializer):
@@ -142,6 +142,18 @@ class ResultFileSerializer(serializers.ModelSerializer):
         fields = ["id", "file", "original_name", "uploaded_at"]
 
 
+class ResultEntrySerializer(serializers.ModelSerializer):
+    """Одна запись ленты результата. author НЕ отдаётся — роль однозначно читается из kind
+    (submitted → исполнитель, returned/accepted → заказчик), фронт уже знает обе стороны из
+    контекста страницы. Порядок — по Request.result_entries (Meta.ordering = created_at на
+    модели), сериализатор его не переопределяет."""
+    files = ResultFileSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = ResultEntry
+        fields = ["id", "kind", "text", "created_at", "files"]
+
+
 class RequestLocationValidationMixin:
     """Условная обязательность локации: city при location_type=city,
     district при location_type=district (тот же приём, что ИИН/БИН в accounts)."""
@@ -176,6 +188,11 @@ class RequestSerializer(RequestLocationValidationMixin, serializers.ModelSeriali
     site_geometry = GeometryField(source="site.geometry", read_only=True)
     bids_count = serializers.IntegerField(source="bids.count", read_only=True)
     result_files = ResultFileSerializer(many=True, read_only=True)
+    # Лента результата (подшаг 2, 2026-07-17) — заменяет result_note/return_note ниже.
+    # Те пока остаются в ответе (удалить в подшаге 3, отдельной миграцией) — но их значения
+    # с этого момента ЗАМОРОЖЕНЫ: SubmitResultView/ReturnView больше их не пишут, новые
+    # сдачи/возвраты видны только в result_entries.
+    result_entries = ResultEntrySerializer(many=True, read_only=True)
     location_display = serializers.SerializerMethodField()
 
     class Meta:
@@ -185,12 +202,12 @@ class RequestSerializer(RequestLocationValidationMixin, serializers.ModelSeriali
             "geometry", "site_geometry", "location_type", "city", "district", "location_display",
             "contractor_note",
             "status", "assigned_contractor",
-            "result_files", "result_note", "return_note", "bids_count",
+            "result_files", "result_note", "return_note", "result_entries", "bids_count",
             "created_at", "updated_at",
         ]
         read_only_fields = [
             "id", "status", "assigned_contractor",
-            "result_files", "result_note", "return_note", "bids_count",
+            "result_files", "result_note", "return_note", "result_entries", "bids_count",
             "created_at", "updated_at", "location_display",
         ]
 
@@ -288,11 +305,11 @@ class RequestFeedDetailSerializer(RequestFeedSerializer):
     ленты/RequestFeedSerializer, где my_bid сознательно не добавлен —
     20 строк на странице означали бы 20 лишних запросов).
 
-    status/result_files/result_note/return_note раскрываются ТОЛЬКО победителю —
-    условие строго instance.assigned_contractor_id == viewer.id, НЕ «есть my_bid».
-    Обе ветки живут в одном to_representation, но с разными условиями:
-    my_bid есть у любого откликнувшегося (включая проигравших), а эти четыре
-    поля — только у того, кого выбрали. Перепутать условия значит повторить
+    status/result_files/result_note/return_note/result_entries раскрываются
+    ТОЛЬКО победителю — условие строго instance.assigned_contractor_id ==
+    viewer.id, НЕ «есть my_bid». Обе ветки живут в одном to_representation,
+    но с разными условиями: my_bid есть у любого откликнувшегося (включая
+    проигравших), а эти пять полей — только у того, кого выбрали. Перепутать условия значит повторить
     утечку статуса заявки проигравшему (инвариант №9) — то же самое, что уже
     проверялось живым devtools-тестом на заявке 32 (проигравший видит my_bid,
     но не status/assigned_contractor/result_files/result_note)."""
@@ -319,6 +336,7 @@ class RequestFeedDetailSerializer(RequestFeedSerializer):
                 data["result_files"] = ResultFileSerializer(instance.result_files.all(), many=True).data
                 data["result_note"] = instance.result_note
                 data["return_note"] = instance.return_note
+                data["result_entries"] = ResultEntrySerializer(instance.result_entries.all(), many=True).data
         return data
 
 
