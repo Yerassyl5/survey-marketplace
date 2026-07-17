@@ -100,6 +100,10 @@ export interface FeedRequestDetail extends FeedRequest {
   assigned_contractor?: number | null;
   result_files?: ResultFile[];
   result_note?: string;
+  /** Причина последнего возврата на доработку (ReturnView) — та же пара условий
+   * раскрытия, что и у result_files/result_note выше. Пусто/отсутствует ⟺
+   * заявка ни разу не возвращалась (см. backend Request.return_note). */
+  return_note?: string;
   /** Только для роли contractor, только если он откликался — см.
    * MyBidBrief. Отсутствует у заказчика и у исполнителя без отклика. */
   my_bid?: MyBidBrief;
@@ -248,6 +252,24 @@ export async function submitResult(requestId: number, files: File[], note: strin
   return apiFetch<{ status: string }>(`/marketplace/requests/${requestId}/submit-result/`, {
     method: "POST",
     body: formData,
+  });
+}
+
+/** POST .../accept/ — только status=RESULT_SUBMITTED на бэкенде (AcceptView), терминальный
+ * переход в accepted. Статус «принято» ставит только заказчик (инвариант №2). */
+export async function acceptResult(requestId: number): Promise<{ status: string }> {
+  return apiFetch<{ status: string }>(`/marketplace/requests/${requestId}/accept/`, {
+    method: "POST",
+  });
+}
+
+/** POST .../return/ — только status=RESULT_SUBMITTED на бэкенде (ReturnView), возвращает в
+ * awarded. return_note ОБЯЗАТЕЛЬНА на бэкенде (400 без неё) — фронт валидирует то же самое
+ * заранее в ReturnResultDialog, но сервер — источник истины. */
+export async function returnResult(requestId: number, returnNote: string): Promise<{ status: string }> {
+  return apiFetch<{ status: string }>(`/marketplace/requests/${requestId}/return/`, {
+    method: "POST",
+    body: JSON.stringify({ return_note: returnNote }),
   });
 }
 

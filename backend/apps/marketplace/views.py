@@ -512,9 +512,20 @@ class AcceptView(APIView):
         return Response({"status": RequestStatus.ACCEPTED})
 
 
-@extend_schema(tags=["marketplace"], summary="Возврат результата на доработку")
+@extend_schema(
+    tags=["marketplace"],
+    summary="Возврат результата на доработку",
+    request=inline_serializer(
+        name="ReturnResultRequest",
+        fields={
+            "return_note": rf_serializers.CharField(help_text="Причина возврата (обязательна)"),
+        },
+    ),
+)
 class ReturnView(APIView):
-    """Заказчик возвращает результат на доработку — заявка переходит обратно в awarded."""
+    """Заказчик возвращает результат на доработку — заявка переходит обратно в awarded.
+    return_note обязательна: возврат без причины бессмыслен, исполнитель сдаст то же самое
+    повторно (см. progress.md, согласовано 2026-07-14)."""
     permission_classes = [IsCustomer]
 
     def post(self, request, pk):
@@ -523,6 +534,12 @@ class ReturnView(APIView):
         ).first()
         if not req:
             return Response({"detail": "Заявка не найдена или недоступна."}, status=status.HTTP_404_NOT_FOUND)
-        Request.objects.filter(pk=req.pk).update(status=RequestStatus.AWARDED)
-        publish(ResultReturned(request_id=req.id))
+        note = (request.data.get("return_note") or "").strip()
+        if not note:
+            return Response(
+                {"detail": "Укажите причину возврата — без неё исполнитель не поймёт, что исправить."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.AWARDED, return_note=note)
+        publish(ResultReturned(request_id=req.id, return_note=note))
         return Response({"status": RequestStatus.AWARDED})

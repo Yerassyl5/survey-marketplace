@@ -20,9 +20,9 @@ import type { FormEvent } from "react";
 
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/button";
-import { FileLink } from "@/components/ui/FileLink";
 import { MultiFilePicker } from "@/components/ui/MultiFilePicker";
 import { Textarea } from "@/components/ui/Textarea";
+import { ResultFileList } from "@/components/marketplace/ResultFileList";
 import { useRouter as useI18nRouter } from "@/i18n/navigation";
 import { AuthRequiredError } from "@/lib/api/client";
 import { submitResult } from "@/lib/api/marketplace";
@@ -43,18 +43,6 @@ const titleStyle = {
   color: "var(--ds-text)",
   margin: "0 0 12px",
 } as const;
-
-function ResultFileList({ files }: { files: ResultFile[] }) {
-  return (
-    <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
-      {files.map((f) => (
-        <li key={f.id}>
-          <FileLink href={f.file} name={f.original_name || `Файл #${f.id}`} />
-        </li>
-      ))}
-    </ul>
-  );
-}
 
 export interface ResultSubmissionCardProps {
   requestId: number;

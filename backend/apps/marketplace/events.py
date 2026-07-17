@@ -54,6 +54,7 @@ class DealCompleted(DomainEvent):
 class ResultReturned(DomainEvent):
     """Заказчик вернул результат на доработку."""
     request_id: int
+    return_note: str
 
 
 @dataclass(frozen=True)

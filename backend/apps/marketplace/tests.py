@@ -16,7 +16,7 @@ from apps.accounts.models import ContractorProfile, Role, User, VerificationStat
 from apps.geo.models import City, District, Region
 from apps.sites.models import Site
 
-from .events import BidConsidered, BidWithdrawn
+from .events import BidConsidered, BidWithdrawn, ResultReturned
 from .models import Bid, BidStatus, LocationType, Request, RequestStatus
 
 
@@ -1040,10 +1040,122 @@ class RequestLifecycleTest(TestCase):
         self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": bid.id}, format="json")
         file = SimpleUploadedFile("report.pdf", b"fake pdf content", content_type="application/pdf")
         self.client_e.post(f"/api/marketplace/requests/{req.id}/submit-result/", {"result_files": file})
-        r = self.client_c.post(f"/api/marketplace/requests/{req.id}/return/")
+        r = self.client_c.post(f"/api/marketplace/requests/{req.id}/return/", {"return_note": "Не хватает координат углов"}, format="json")
         self.assertEqual(r.status_code, 200)
         req.refresh_from_db()
         self.assertEqual(req.status, RequestStatus.AWARDED)
+        self.assertEqual(req.return_note, "Не хватает координат углов")
+
+    def test_return_requires_note(self):
+        """Возврат без причины бессмыслен — исполнитель сдаст то же самое повторно
+        (согласовано 2026-07-14). Пустая строка и строка из пробелов — тоже отказ."""
+        req, bid = self._setup_bid()
+        self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": bid.id}, format="json")
+        file = SimpleUploadedFile("report.pdf", b"fake pdf content", content_type="application/pdf")
+        self.client_e.post(f"/api/marketplace/requests/{req.id}/submit-result/", {"result_files": file})
+
+        r = self.client_c.post(f"/api/marketplace/requests/{req.id}/return/", {}, format="json")
+        self.assertEqual(r.status_code, 400)
+        r = self.client_c.post(f"/api/marketplace/requests/{req.id}/return/", {"return_note": "   "}, format="json")
+        self.assertEqual(r.status_code, 400)
+        req.refresh_from_db()
+        self.assertEqual(req.status, RequestStatus.RESULT_SUBMITTED)
+        self.assertEqual(req.return_note, "")
+
+    def test_return_rejected_when_accepted(self):
+        """Из accepted (терминальный статус) вернуть нельзя — тот же фильтр
+        status=RESULT_SUBMITTED, что уже закрывает return от awarded/open."""
+        req, bid = self._setup_bid()
+        self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": bid.id}, format="json")
+        file = SimpleUploadedFile("report.pdf", b"fake pdf content", content_type="application/pdf")
+        self.client_e.post(f"/api/marketplace/requests/{req.id}/submit-result/", {"result_files": file})
+        self.client_c.post(f"/api/marketplace/requests/{req.id}/accept/")
+        r = self.client_c.post(f"/api/marketplace/requests/{req.id}/return/", {"return_note": "Поздно"}, format="json")
+        self.assertEqual(r.status_code, 404)
+        req.refresh_from_db()
+        self.assertEqual(req.status, RequestStatus.ACCEPTED)
+
+    def test_accept_rejected_when_awarded(self):
+        """Принять нельзя, пока результат не сдан (result_files ещё пуст)."""
+        req, bid = self._setup_bid()
+        self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": bid.id}, format="json")
+        r = self.client_c.post(f"/api/marketplace/requests/{req.id}/accept/")
+        self.assertEqual(r.status_code, 404)
+        req.refresh_from_db()
+        self.assertEqual(req.status, RequestStatus.AWARDED)
+
+    def test_return_note_visible_to_winner_not_to_loser(self):
+        """Та же гарантия инварианта №9, что уже проверена для status/result_files/
+        result_note (см. test_winner_sees_status_result_files_and_note /
+        test_rejected_contractor_sees_own_bid_not_request_status) — return_note
+        раскрывается по тому же условию (assigned_contractor_id == viewer.id),
+        добавлена в ту же ветку, поэтому проигравший её тоже не должен получить."""
+        req = self._create_request()
+        winner_bid = Bid.objects.create(
+            request=req, contractor=self.contractor, price=100000, deadline_days=10,
+            considered_at=timezone.now(),
+        )
+        loser = make_contractor("loser-return@test.kz")
+        Bid.objects.create(
+            request=req, contractor=loser, price=95000, deadline_days=9, considered_at=timezone.now(),
+        )
+        Request.objects.filter(pk=req.pk).update(status=RequestStatus.UNDER_REVIEW)
+        self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": winner_bid.id}, format="json")
+        file = SimpleUploadedFile("report.pdf", b"fake pdf content", content_type="application/pdf")
+        self.client_e.post(f"/api/marketplace/requests/{req.id}/submit-result/", {"result_files": file})
+        self.client_c.post(f"/api/marketplace/requests/{req.id}/return/", {"return_note": "Добавьте профиль скважины"}, format="json")
+
+        r_winner = self.client_e.get(f"/api/marketplace/requests/{req.id}/")
+        self.assertEqual(r_winner.data["return_note"], "Добавьте профиль скважины")
+
+        loser_client = APIClient()
+        loser_client.force_authenticate(user=loser)
+        r_loser = loser_client.get(f"/api/marketplace/requests/{req.id}/")
+        self.assertNotIn("return_note", r_loser.data)
+        self.assertIn("my_bid", r_loser.data)
+
+    @patch("apps.marketplace.views.publish")
+    def test_return_publishes_event_with_note(self, mock_publish):
+        req, bid = self._setup_bid()
+        self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": bid.id}, format="json")
+        file = SimpleUploadedFile("report.pdf", b"fake pdf content", content_type="application/pdf")
+        self.client_e.post(f"/api/marketplace/requests/{req.id}/submit-result/", {"result_files": file})
+        mock_publish.reset_mock()
+        self.client_c.post(f"/api/marketplace/requests/{req.id}/return/", {"return_note": "Причина X"}, format="json")
+        self.assertEqual(mock_publish.call_count, 1)
+        published = mock_publish.call_args[0][0]
+        self.assertIsInstance(published, ResultReturned)
+        self.assertEqual(published.return_note, "Причина X")
+
+    def test_second_return_cycle_overwrites_note(self):
+        """Полный повторный цикл: awarded → submit → result_submitted → return →
+        awarded → submit → result_submitted, без 404/409 ни на одном шаге.
+        Вторая причина возврата ПЕРЕЗАПИСЫВАЕТ первую (п.1 плана, прецедент
+        result_note) — не накапливается."""
+        req, bid = self._setup_bid()
+        self.client_c.post(f"/api/marketplace/requests/{req.id}/award/", {"bid_id": bid.id}, format="json")
+
+        file1 = SimpleUploadedFile("report1.pdf", b"first", content_type="application/pdf")
+        r = self.client_e.post(f"/api/marketplace/requests/{req.id}/submit-result/", {"result_files": file1})
+        self.assertEqual(r.status_code, 200)
+
+        r = self.client_c.post(f"/api/marketplace/requests/{req.id}/return/", {"return_note": "Причина 1"}, format="json")
+        self.assertEqual(r.status_code, 200)
+        req.refresh_from_db()
+        self.assertEqual(req.status, RequestStatus.AWARDED)
+        self.assertEqual(req.return_note, "Причина 1")
+
+        file2 = SimpleUploadedFile("report2.pdf", b"second", content_type="application/pdf")
+        r = self.client_e.post(f"/api/marketplace/requests/{req.id}/submit-result/", {"result_files": file2})
+        self.assertEqual(r.status_code, 200)
+        req.refresh_from_db()
+        self.assertEqual(req.status, RequestStatus.RESULT_SUBMITTED)
+        self.assertEqual(req.result_files.count(), 2)  # накопление, не замена (find E прошлой сессии)
+
+        r = self.client_c.post(f"/api/marketplace/requests/{req.id}/return/", {"return_note": "Причина 2"}, format="json")
+        self.assertEqual(r.status_code, 200)
+        req.refresh_from_db()
+        self.assertEqual(req.return_note, "Причина 2")  # перезаписано, не "Причина 1; Причина 2"
 
     # ------------------------------------------------------------------
     # Мои отклики (исполнитель)

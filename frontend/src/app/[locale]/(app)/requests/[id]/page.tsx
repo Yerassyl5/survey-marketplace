@@ -25,6 +25,7 @@ import { SiteMap } from "@/components/ui/SiteMap";
 import { BidForm } from "@/components/marketplace/BidForm";
 import { BidsPanel } from "@/components/marketplace/BidsPanel";
 import { MyBidStatusPanel } from "@/components/marketplace/MyBidStatusPanel";
+import { ResultReviewCard } from "@/components/marketplace/ResultReviewCard";
 import { ResultSubmissionCard } from "@/components/marketplace/ResultSubmissionCard";
 import { useAuth } from "@/contexts/AuthContext";
 import { Link, useRouter as useI18nRouter } from "@/i18n/navigation";
@@ -245,6 +246,8 @@ function DetailContent({
   onAwarded,
   onWithdrawSuccess,
   onSubmitResultSuccess,
+  onAcceptSuccess,
+  onReturnSuccess,
 }: {
   request: FeedRequestDetail;
   isVerified: boolean;
@@ -260,6 +263,8 @@ function DetailContent({
   onAwarded: (contractorId: number) => void;
   onWithdrawSuccess: () => void;
   onSubmitResultSuccess: () => void;
+  onAcceptSuccess: () => void;
+  onReturnSuccess: () => void;
 }) {
   // customer === null — обезличенная чужая заявка (заказчик листает общую ленту).
   const customerLabel = request.customer ? request.customer.organization_name || request.customer.full_name : "Заказчик";
@@ -359,6 +364,20 @@ function DetailContent({
               resultFiles={request.result_files}
               resultNote={request.result_note}
               onSubmitResultSuccess={onSubmitResultSuccess}
+            />
+          )}
+
+          {/* Заказчик-владелец, симметрично ResultSubmissionCard выше — только
+             когда результат уже сдан (на awarded файлов ещё нет, карточку не
+             показываем вовсе, см. docs/progress.md). */}
+          {isOwnerView && (request.status === "result_submitted" || request.status === "accepted") && (
+            <ResultReviewCard
+              requestId={request.id}
+              requestStatus={request.status}
+              resultFiles={request.result_files ?? []}
+              resultNote={request.result_note ?? ""}
+              onAcceptSuccess={onAcceptSuccess}
+              onReturnSuccess={onReturnSuccess}
             />
           )}
         </div>
@@ -492,12 +511,13 @@ export default function RequestDetailPage() {
     );
   }
 
-  // Рефетч, не ручной мердж: submitResult() отдаёт только {status}, без
-  // id/URL новых ResultFile — собирать их на клиенте значит рисковать
-  // разойтись с тем, что реально сохранил сервер (тот же принцип, что и
-  // handleBidSuccess/handleWithdrawSuccess выше, только там хватало данных
-  // из ответа, а здесь — нет).
-  async function handleSubmitResultSuccess() {
+  // Рефетч, не ручной мердж: submitResult()/acceptResult()/returnResult()
+  // отдают только {status}, без id/URL новых ResultFile или самого
+  // return_note — собирать их на клиенте значит рисковать разойтись с тем,
+  // что реально сохранил сервер (тот же принцип, что и handleBidSuccess/
+  // handleWithdrawSuccess выше, только там хватало данных из ответа, а
+  // здесь — нет). Один обработчик на все три мутации — логика идентична.
+  async function handleRequestChanged() {
     try {
       const data = await getRequestDetail(requestId);
       setResult({ key: requestKey, status: "success", data });
@@ -506,7 +526,7 @@ export default function RequestDetailPage() {
         i18nRouter.replace("/login");
         return;
       }
-      // Сдача уже прошла на бэкенде — рефетч лишь обновляет вид страницы;
+      // Мутация уже прошла на бэкенде — рефетч лишь обновляет вид страницы;
       // если он не удался (например, сеть моргнула сразу после успешного
       // POST), молча оставляем прежние данные до следующего F5/повтора.
     }
@@ -533,7 +553,9 @@ export default function RequestDetailPage() {
           isCustomer={isCustomer}
           onAwarded={handleAwarded}
           onWithdrawSuccess={handleWithdrawSuccess}
-          onSubmitResultSuccess={handleSubmitResultSuccess}
+          onSubmitResultSuccess={handleRequestChanged}
+          onAcceptSuccess={handleRequestChanged}
+          onReturnSuccess={handleRequestChanged}
         />
       ) : null}
     </div>

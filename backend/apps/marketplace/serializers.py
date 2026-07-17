@@ -185,12 +185,12 @@ class RequestSerializer(RequestLocationValidationMixin, serializers.ModelSeriali
             "geometry", "site_geometry", "location_type", "city", "district", "location_display",
             "contractor_note",
             "status", "assigned_contractor",
-            "result_files", "result_note", "bids_count",
+            "result_files", "result_note", "return_note", "bids_count",
             "created_at", "updated_at",
         ]
         read_only_fields = [
             "id", "status", "assigned_contractor",
-            "result_files", "result_note", "bids_count",
+            "result_files", "result_note", "return_note", "bids_count",
             "created_at", "updated_at", "location_display",
         ]
 
@@ -288,10 +288,10 @@ class RequestFeedDetailSerializer(RequestFeedSerializer):
     ленты/RequestFeedSerializer, где my_bid сознательно не добавлен —
     20 строк на странице означали бы 20 лишних запросов).
 
-    status/result_files/result_note раскрываются ТОЛЬКО победителю — условие
-    строго instance.assigned_contractor_id == viewer.id, НЕ «есть my_bid».
+    status/result_files/result_note/return_note раскрываются ТОЛЬКО победителю —
+    условие строго instance.assigned_contractor_id == viewer.id, НЕ «есть my_bid».
     Обе ветки живут в одном to_representation, но с разными условиями:
-    my_bid есть у любого откликнувшегося (включая проигравших), а эти три
+    my_bid есть у любого откликнувшегося (включая проигравших), а эти четыре
     поля — только у того, кого выбрали. Перепутать условия значит повторить
     утечку статуса заявки проигравшему (инвариант №9) — то же самое, что уже
     проверялось живым devtools-тестом на заявке 32 (проигравший видит my_bid,
@@ -318,6 +318,7 @@ class RequestFeedDetailSerializer(RequestFeedSerializer):
                 data["status"] = instance.status
                 data["result_files"] = ResultFileSerializer(instance.result_files.all(), many=True).data
                 data["result_note"] = instance.result_note
+                data["return_note"] = instance.return_note
         return data
 
 
