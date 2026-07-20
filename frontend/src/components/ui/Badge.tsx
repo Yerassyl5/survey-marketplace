@@ -19,7 +19,14 @@ export type RequestStatus =
   | "Ждёт рассмотрения"
   | "В работе"
   | "Результат сдан, примите работу"
-  | "Закрыта";
+  | "Закрыта"
+  // Лейбл исполнителя для result_submitted (та же заявка, формулировка с
+  // позиции сдающего, не принимающего) — см. CONTRACTOR_STATUS_LABELS в
+  // requests/my-work/page.tsx. Токен цвета намеренно тот же, что у заказчицкой
+  // пары выше — статус физически один и тот же, различаются только слова.
+  // Для accepted у исполнителя отдельного лейбла нет — там используется
+  // "Закрыта" (то же слово, что у заказчика).
+  | "Сдано, ожидает приемки";
 
 const STATUS_VARS: Record<RequestStatus, { bg: string; color: string }> = {
   "Новая":                            { bg: "var(--ds-new-bg)",    color: "var(--ds-new-text)"    },
@@ -29,6 +36,7 @@ const STATUS_VARS: Record<RequestStatus, { bg: string; color: string }> = {
   // другой смысл (позитив/успех отклика), чем «идёт процесс» у заявки.
   "В работе":                         { bg: "var(--ds-progress-bg)", color: "var(--ds-progress-text)" },
   "Результат сдан, примите работу":   { bg: "var(--ds-select-bg)", color: "var(--ds-select-text)" },
+  "Сдано, ожидает приемки":           { bg: "var(--ds-select-bg)", color: "var(--ds-select-text)" },
   // --ds-success (изумрудный) — отдельный от --ds-progress выше и от
   // --ds-active, три разных состояния не должны делить цвет.
   "Закрыта":                          { bg: "var(--ds-success-bg)", color: "var(--ds-success)"    },

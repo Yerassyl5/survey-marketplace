@@ -1,43 +1,74 @@
 "use client";
 
 /* ────────────────────────────────────────────────────────────────────────
-   /ru/requests/my-bids — «Мои отклики», кабинет исполнителя. Все отклики
-   текущего исполнителя на все заявки (GET /marketplace/my-bids/, не
-   пагинируется — см. комментарий у RequestPagination в backend/views.py).
-   Статус вычисляется на фронте из Bid.status/considered_at (BidOutcomeBadge),
-   НЕ из Request.status — эта заявка исполнителю структурно не видна вне
-   BidRequestBrief (инвариант №9).
-   Гвард — тем же паттерном, что на /feed/(requests/my: исполнитель здесь,
-   заказчик редиректится на /feed.
+   /ru/requests/my-work — «Мои сделки», кабинет исполнителя. Заявки, которые
+   исполнитель выиграл (GET /marketplace/my-awarded/, не пагинируется —
+   тот же принцип, что и у /marketplace/my-bids/, см. RequestPagination
+   в backend/views.py). Фильтр на бэкенде — Bid.status=selected, поэтому
+   здесь (в отличие от «Моих откликов») Request.status легитимно виден —
+   исполнитель тут структурно только победитель (architecture.md §4.3,
+   раздел там называется «В работе и выполненные» — в UI это название не
+   используется, экран называется «Мои сделки»).
+   Гвард — тем же паттерном, что на /feed/(requests/my-bids: исполнитель
+   здесь, заказчик редиректится на /feed.
 
-   Фильтр — только локация (city_id/district_id внутри BidRequestBrief).
-   Статус отклика сознательно НЕ фильтруется: три метки BidOutcomeBadge не
-   дают полезного разреза («Ожидает»/«На рассмотрении» — обе про «ещё не
-   решено»), а фильтр по реальному selected/rejected раскрыл бы исход прямо
-   в таблице — то самое решение, которое BidOutcomeBadge сознательно скрывает
-   (см. докстринг компонента). Данных мало (≤десятков строк даже у самого
-   активного исполнителя, эндпоинт без пагинации) — фильтрация клиентская,
-   useMemo над уже загруженным массивом, без URL query-параметров.
+   Фильтры — локация (city_id/district_id внутри BidRequestBrief) и статус
+   заявки (CONTRACTOR_STATUS_LABELS). Данных мало (эндпоинт без пагинации,
+   ≤десятков строк даже у самого активного исполнителя) — фильтрация
+   клиентская, useMemo над уже загруженным массивом, без URL query-параметров.
    ──────────────────────────────────────────────────────────────────────── */
 
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 
-import { BidOutcomeBadge } from "@/components/marketplace/BidOutcomeBadge";
+import { StatusBadge } from "@/components/ui/Badge";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/button";
+import { FormField } from "@/components/ui/FormField";
 import { LocationCascadeSelect } from "@/components/ui/LocationCascadeSelect";
-import { DescriptionCell, formatDate, WORK_TYPE_LABELS } from "@/components/ui/RequestRow";
+import { Select } from "@/components/ui/Select";
+import { formatDate, WORK_TYPE_LABELS } from "@/components/ui/RequestRow";
 import { useAuth } from "@/contexts/AuthContext";
 import { Link, useRouter as useI18nRouter } from "@/i18n/navigation";
 import { AuthRequiredError } from "@/lib/api/client";
 import { getLocations } from "@/lib/api/geo";
 import type { GeoLocations } from "@/lib/api/geo";
-import { getMyBids } from "@/lib/api/marketplace";
-import type { MyBid } from "@/lib/api/marketplace";
+import { getMyAwarded } from "@/lib/api/marketplace";
+import type { MyAwardedBid } from "@/lib/api/marketplace";
 import { ApiError } from "@/lib/api/types";
 
-const COLUMNS = ["№", "Тип работ", "Локация", "Описание", "Моя цена", "Мой срок", "Статус", "Дата отклика"];
+// Статус заявки для ИСПОЛНИТЕЛЯ-победителя — отдельный набор от STATUS_LABELS
+// (RequestRow.tsx): те лейблы написаны с позиции заказчика-принимающего
+// («примите работу») и дословно не подходят сдающей стороне. На деле набор
+// отличается от STATUS_LABELS РОВНО одним лейблом (result_submitted) — там
+// «Результат сдан, примите работу», здесь «Сдано, ожидает приемки»; open/
+// under_review/awarded/accepted у обеих сторон читаются одинаково («Принято»
+// для accepted звучало бы промежуточным состоянием, тогда как это конец
+// цикла — то же слово «Закрыта», что у заказчика). Если статус заявки для
+// исполнителя понадобится ещё где-то (не только на этом экране) — выносить
+// в общий модуль рядом со STATUS_LABELS, а не дублировать словарь повторно
+// в третьем месте.
+const CONTRACTOR_STATUS_LABELS: Record<MyAwardedBid["request"]["status"], string> = {
+  open: "Новая",
+  under_review: "Ждёт рассмотрения",
+  awarded: "В работе",
+  result_submitted: "Сдано, ожидает приемки",
+  accepted: "Закрыта",
+};
+
+// Фильтр статуса — только 3 реально достижимых значения на этом экране, не
+// все 5 ключей CONTRACTOR_STATUS_LABELS. MyAwardedListView фильтрует
+// Bid.status=SELECTED, что структурно гарантирует Request.status уже прошёл
+// award (см. backend/apps/marketplace/serializers.py::BidRequestWithStatusSerializer)
+// — open/under_review здесь никогда не встретятся, показывать их в фильтре
+// как варианты выбора было бы нечестно (пустой результат гарантированно).
+const STATUS_FILTER_OPTIONS: Array<MyAwardedBid["request"]["status"]> = [
+  "awarded",
+  "result_submitted",
+  "accepted",
+];
+
+const COLUMNS = ["№", "Тип работ", "Локация", "Моя цена", "Мой срок", "Статус", "Дата отклика"];
 
 function TableShell({ children }: { children: React.ReactNode }) {
   return (
@@ -49,7 +80,7 @@ function TableShell({ children }: { children: React.ReactNode }) {
         background: "var(--ds-bg-white)",
       }}
     >
-      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 820 }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
         <thead>
           <tr>
             {COLUMNS.map((c) => (
@@ -102,7 +133,6 @@ function SkeletonRows() {
           <td style={td}><SkeletonBar width={18} /></td>
           <td style={td}><SkeletonBar width={90} /></td>
           <td style={td}><SkeletonBar width={100} /></td>
-          <td style={td}><SkeletonBar width={160} /></td>
           <td style={td}><SkeletonBar width={80} /></td>
           <td style={td}><SkeletonBar width={60} /></td>
           <td style={td}><SkeletonBar width={100} /></td>
@@ -122,15 +152,16 @@ const cellStyle: CSSProperties = {
   verticalAlign: "middle",
 };
 
-/* ── Фильтр — только локация, тот же переиспользуемый LocationCascadeSelect,
-   что и на /feed. Обёртка-бокс скопирована из FilterBar.tsx (тот заточен под
-   ленту с work_type, здесь набор другой — переиспользовать сам компонент
-   FilterBar нельзя, но LocationCascadeSelect внутри — можно и нужно). ────── */
-function LocationFilterBar({
+/* ── Фильтры — локация (LocationCascadeSelect, тот же переиспользуемый
+   компонент, что и на /feed) + статус заявки. Обёртка-бокс — тот же стиль,
+   что FilterBar.tsx/LocationFilterBar в my-bids. ─────────────────────────── */
+function FiltersBar({
   locations,
   cityId,
   districtId,
-  onChange,
+  onLocationChange,
+  status,
+  onStatusChange,
   hasActiveFilters,
   onReset,
   locationResetNonce,
@@ -138,7 +169,9 @@ function LocationFilterBar({
   locations: GeoLocations | null;
   cityId: number | null;
   districtId: number | null;
-  onChange: (next: { cityId: number | null; districtId: number | null }) => void;
+  onLocationChange: (next: { cityId: number | null; districtId: number | null }) => void;
+  status: MyAwardedBid["request"]["status"] | "";
+  onStatusChange: (next: MyAwardedBid["request"]["status"] | "") => void;
   hasActiveFilters: boolean;
   onReset: () => void;
   locationResetNonce: number;
@@ -156,13 +189,29 @@ function LocationFilterBar({
         borderRadius: "var(--ds-r-lg)",
       }}
     >
+      <div style={{ minWidth: 200, flex: "1 1 200px" }}>
+        <FormField id="my-work-filter-status" label="Статус">
+          <Select
+            value={status}
+            onChange={(e) => onStatusChange(e.target.value as MyAwardedBid["request"]["status"] | "")}
+          >
+            <option value="">Все статусы</option>
+            {STATUS_FILTER_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {CONTRACTOR_STATUS_LABELS[s]}
+              </option>
+            ))}
+          </Select>
+        </FormField>
+      </div>
+
       <LocationCascadeSelect
         key={locationResetNonce}
         locations={locations}
         value={{ cityId, districtId }}
-        onChange={onChange}
+        onChange={onLocationChange}
         allowEmpty
-        idPrefix="my-bids-filter"
+        idPrefix="my-work-filter"
       />
 
       {hasActiveFilters && (
@@ -198,9 +247,9 @@ function LocationFilterBar({
   );
 }
 
-/* ── Пустые состояния — два разных, не один: "no-data" (откликов нет вообще)
-   и "no-results" (откликов много, но фильтр отсёк все) — тот же принцип,
-   что и на /feed. ─────────────────────────────────────────────────────── */
+/* ── Пустые состояния — два разных: "no-data" (сделок нет вообще) и
+   "no-results" (сделки есть, но фильтры отсекли все) — тот же принцип,
+   что и на /feed и /requests/my-bids. ─────────────────────────────────── */
 function EmptyState({ variant, onReset }: { variant: "no-data" | "no-results"; onReset: () => void }) {
   return (
     <div
@@ -213,12 +262,12 @@ function EmptyState({ variant, onReset }: { variant: "no-data" | "no-results"; o
       }}
     >
       <p style={{ fontFamily: "var(--ds-font-heading)", fontSize: 16, fontWeight: 700, color: "var(--ds-text)", margin: "0 0 6px" }}>
-        {variant === "no-data" ? "Вы ещё не откликались" : "Ничего не найдено"}
+        {variant === "no-data" ? "Пока нет сделок" : "Ничего не найдено"}
       </p>
       <p style={{ fontFamily: "var(--ds-font-body)", fontSize: 14, color: "var(--ds-text-sec)", margin: "0 0 20px" }}>
         {variant === "no-data"
-          ? "Посмотрите открытые заявки в общей ленте и откликнитесь на подходящую."
-          : "Попробуйте изменить или сбросить фильтр локации."}
+          ? "Здесь появятся заявки, в которых вас выбрали исполнителем."
+          : "Попробуйте изменить или сбросить фильтры."}
       </p>
       {variant === "no-data" ? (
         <Link href="/feed">
@@ -233,7 +282,7 @@ function EmptyState({ variant, onReset }: { variant: "no-data" | "no-results"; o
   );
 }
 
-export default function MyBidsPage() {
+export default function MyWorkPage() {
   const { user } = useAuth();
   const i18nRouter = useI18nRouter();
 
@@ -247,7 +296,7 @@ export default function MyBidsPage() {
 
   const [retryNonce, setRetryNonce] = useState(0);
   const [result, setResult] = useState<
-    | { key: number; status: "success"; data: MyBid[] }
+    | { key: number; status: "success"; data: MyAwardedBid[] }
     | { key: number; status: "error"; message: string }
     | null
   >(null);
@@ -256,7 +305,7 @@ export default function MyBidsPage() {
   useEffect(() => {
     if (!isContractor) return;
     let cancelled = false;
-    getMyBids()
+    getMyAwarded()
       .then((data) => {
         if (cancelled) return;
         setResult({ key: retryNonce, status: "success", data });
@@ -270,7 +319,7 @@ export default function MyBidsPage() {
         setResult({
           key: retryNonce,
           status: "error",
-          message: err instanceof ApiError ? err.message : "Не удалось загрузить отклики.",
+          message: err instanceof ApiError ? err.message : "Не удалось загрузить сделки.",
         });
       });
     return () => {
@@ -289,7 +338,8 @@ export default function MyBidsPage() {
 
   const [cityId, setCityId] = useState<number | null>(null);
   const [districtId, setDistrictId] = useState<number | null>(null);
-  const hasActiveFilters = cityId != null || districtId != null;
+  const [statusFilter, setStatusFilter] = useState<MyAwardedBid["request"]["status"] | "">("");
+  const hasActiveFilters = cityId != null || districtId != null || statusFilter !== "";
 
   // Форсированный remount LocationCascadeSelect при сбросе — иначе если
   // пользователь выбрал ОБЛАСТЬ, но не успел выбрать город/район внутри неё,
@@ -308,6 +358,7 @@ export default function MyBidsPage() {
   function handleReset() {
     setCityId(null);
     setDistrictId(null);
+    setStatusFilter("");
     setLocationResetNonce((n) => n + 1);
   }
 
@@ -316,11 +367,12 @@ export default function MyBidsPage() {
     if (!allBids) return null;
     if (!hasActiveFilters) return allBids;
     return allBids.filter((bid) => {
+      if (statusFilter && bid.request.status !== statusFilter) return false;
       if (cityId != null && bid.request.city_id !== cityId) return false;
       if (districtId != null && bid.request.district_id !== districtId) return false;
       return true;
     });
-  }, [allBids, cityId, districtId, hasActiveFilters]);
+  }, [allBids, cityId, districtId, statusFilter, hasActiveFilters]);
 
   if (!user || !isContractor) {
     return null;
@@ -339,19 +391,21 @@ export default function MyBidsPage() {
     >
       <div>
         <h1 style={{ fontFamily: "var(--ds-font-heading)", fontSize: 26, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--ds-text)", margin: "0 0 6px" }}>
-          Мои отклики
+          Мои сделки
         </h1>
         <p style={{ fontFamily: "var(--ds-font-body)", fontSize: 14, color: "var(--ds-text-sec)", margin: 0 }}>
-          Заявки, на которые вы откликнулись, и статус рассмотрения по каждой.
+          Заявки, в которых вас выбрали исполнителем, и статус по каждой.
         </p>
       </div>
 
       {allBids && allBids.length > 0 && (
-        <LocationFilterBar
+        <FiltersBar
           locations={locations}
           cityId={cityId}
           districtId={districtId}
-          onChange={handleLocationChange}
+          onLocationChange={handleLocationChange}
+          status={statusFilter}
+          onStatusChange={setStatusFilter}
           hasActiveFilters={hasActiveFilters}
           onReset={handleReset}
           locationResetNonce={locationResetNonce}
@@ -386,13 +440,10 @@ export default function MyBidsPage() {
               <td style={{ ...cellStyle, color: "var(--ds-text-muted)" }}>{i + 1}</td>
               <td style={cellStyle}>{WORK_TYPE_LABELS[bid.request.work_type]}</td>
               <td style={cellStyle}>{bid.request.location_display}</td>
-              <td style={cellStyle}>
-                <DescriptionCell text={bid.request.description} />
-              </td>
               <td style={cellStyle}>{Number(bid.price).toLocaleString("ru-RU")} ₸</td>
               <td style={cellStyle}>{bid.deadline_days} дн.</td>
               <td style={cellStyle}>
-                <BidOutcomeBadge bid={bid} />
+                <StatusBadge status={CONTRACTOR_STATUS_LABELS[bid.request.status]} />
               </td>
               <td style={{ ...cellStyle, color: "var(--ds-text-sec)", whiteSpace: "nowrap" }}>{formatDate(bid.created_at)}</td>
             </tr>

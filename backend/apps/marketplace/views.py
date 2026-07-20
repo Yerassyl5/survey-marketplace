@@ -326,7 +326,7 @@ class MyAwardedListView(generics.ListAPIView):
     def get_queryset(self):
         return Bid.objects.select_related(*BID_REQUEST_SELECT_RELATED).filter(
             contractor=self.request.user, status=BidStatus.SELECTED
-        )
+        ).order_by("-created_at")
 
 
 @extend_schema(tags=["marketplace"], summary="Заказчик рассматривает отклик (раскрытие телефона)")

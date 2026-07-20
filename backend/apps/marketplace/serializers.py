@@ -62,11 +62,24 @@ class BidRequestBriefSerializer(serializers.Serializer):
     bids_count — исполнитель уже видит статус СВОЕГО отклика на верхнем
     уровне (considered_at + Bid.status), Request.status ему в этом разделе
     не нужен и не добавляется (см. architecture.md §4.3 — «Мои отклики»
-    вычисляет статус из пары considered_at/Bid.status, не из Request.status)."""
+    вычисляет статус из пары considered_at/Bid.status, не из Request.status).
+    city_id/district_id — структурные id для фильтра по локации на фронте
+    (/requests/my-bids, /requests/my-work), без правки backend хватало бы
+    только текстового поиска по location_display. Безопасно ровно потому,
+    что этот сериализатор рендерится только внутри BidOwnerSerializer.request
+    (MyBidListView) и его наследника MyAwardedBidSerializer (MyAwardedListView) —
+    оба permission_classes=[IsContractor] + filter(contractor=request.user, ...),
+    то есть исполнитель видит id города/района только СВОЕГО собственного
+    отклика, того же самого, что уже раскрыт строкой в location_display.
+    BidCustomerSerializer (то, что видит заказчик) поле request исключает из
+    Meta.fields целиком — этот сериализатор туда не попадает ни при каких
+    условиях."""
     id = serializers.IntegerField()
     work_type = serializers.CharField()
     location_display = serializers.SerializerMethodField()
     description = serializers.CharField()
+    city_id = serializers.IntegerField(allow_null=True)
+    district_id = serializers.IntegerField(allow_null=True)
 
     def get_location_display(self, obj):
         return obj.location_label

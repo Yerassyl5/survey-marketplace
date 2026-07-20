@@ -28,6 +28,7 @@ const NAV_LINKS: Record<"customer" | "contractor", AppNavLink[]> = {
   contractor: [
     { label: "Лента заявок", href: "/ru/feed" },
     { label: "Мои отклики", href: "/ru/requests/my-bids" },
+    { label: "Мои сделки", href: "/ru/requests/my-work" },
     { label: "Профиль", href: "#" },
   ],
 };
@@ -59,9 +60,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     ? "Лента заявок"
     : pathname === "/requests/my" || pathname.startsWith("/requests/my/")
       ? "Мои заявки"
-      : pathname.startsWith("/requests/my-bids")
-        ? "Мои отклики"
-        : undefined;
+      : pathname.startsWith("/requests/my-work")
+        ? "Мои сделки"
+        : pathname.startsWith("/requests/my-bids")
+          ? "Мои отклики"
+          : undefined;
 
   useEffect(() => {
     if (!isLoading && !user) {

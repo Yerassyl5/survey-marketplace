@@ -233,12 +233,16 @@ export async function withdrawBid(bidId: number): Promise<void> {
 /** Заявка, на которую сделан отклик — контекст для «Моих откликов»
  * (BidRequestBriefSerializer на бэкенде). Инвариант №9: НЕ включает
  * status/bids_count — исполнитель видит статус СВОЕГО отклика (см. MyBid),
- * не заявки. */
+ * не заявки. city_id/district_id — для клиентского фильтра по локации на
+ * /requests/my-bids и /requests/my-work (безопасно: это его собственный
+ * отклик, то же самое, что уже раскрыто строкой в location_display). */
 export interface BidRequestBrief {
   id: number;
   work_type: WorkType;
   location_display: string;
   description: string;
+  city_id: number | null;
+  district_id: number | null;
 }
 
 /** GET /marketplace/my-bids/ — «Мои отклики» (BidOwnerSerializer). contractor
@@ -251,6 +255,27 @@ export interface MyBid extends Bid {
 
 export async function getMyBids(): Promise<MyBid[]> {
   return apiFetch<MyBid[]>("/marketplace/my-bids/");
+}
+
+/** Заявка внутри «Моих сделок» — BidRequestWithStatusSerializer на бэкенде:
+ * BidRequestBrief + status. Безопасно только в этом эндпоинте (MyAwardedListView
+ * фильтрует Bid.status=SELECTED — структурная гарантия, что это заявка, которую
+ * данный исполнитель выиграл, см. backend/apps/marketplace/serializers.py). */
+export interface BidRequestWithStatus extends BidRequestBrief {
+  status: MyRequest["status"];
+}
+
+/** GET /marketplace/my-awarded/ — «Моих сделок» (кабинет исполнителя,
+ * architecture.md §4.3 называет раздел «В работе и выполненные» — в UI это
+ * название не используется, экран называется «Мои сделки»). Только отклики
+ * со status=selected, независимо от статуса откликов на другие заявки. */
+export interface MyAwardedBid extends Bid {
+  considered_at: string | null;
+  request: BidRequestWithStatus;
+}
+
+export async function getMyAwarded(): Promise<MyAwardedBid[]> {
+  return apiFetch<MyAwardedBid[]>("/marketplace/my-awarded/");
 }
 
 export async function awardBid(requestId: number, bidId: number): Promise<{ status: string }> {
