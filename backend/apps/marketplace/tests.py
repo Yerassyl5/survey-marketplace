@@ -14,6 +14,7 @@ from rest_framework.test import APIClient
 
 from apps.accounts.models import ContractorProfile, Role, User, VerificationStatus
 from apps.geo.models import City, District, Region
+from apps.reputation.models import Review
 from apps.sites.models import Site
 
 from .events import BidConsidered, BidWithdrawn, ResultReturned
@@ -1272,3 +1273,107 @@ class RequestLifecycleTest(TestCase):
         r = self.client_e.get("/api/marketplace/my-bids/")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(len(r.data), 1)
+
+
+class BidRatingAggregationTests(TestCase):
+    """Этап 3 блока «Репутация» — агрегат рейтинга в карточке отклика
+    (GET .../bids/, BidListCreateView.list() + ContractorBriefSerializer.rating).
+    Отзывы берутся с ОТДЕЛЬНЫХ закрытых заявок того же исполнителя — не
+    self.request_obj (она сама ещё pending, отзыва на неё нет и быть не может,
+    инвариант №1/№8)."""
+
+    def setUp(self):
+        self.customer = make_customer()
+        self.contractor = make_contractor()
+        self.site = make_site(self.customer)
+        self.city = make_city()
+        self.client_c = APIClient()
+        self.client_c.force_authenticate(self.customer)
+        self.request_obj = Request.objects.create(
+            site=self.site, customer=self.customer, work_type="geodesy",
+            description="x", location_type=LocationType.CITY, city=self.city,
+        )
+        Bid.objects.create(request=self.request_obj, contractor=self.contractor, price=100000, deadline_days=10)
+
+    def _bids_url(self):
+        return f"/api/marketplace/requests/{self.request_obj.id}/bids/"
+
+    def _leave_review(self, contractor, rating):
+        """Отдельная закрытая (accepted) заявка того же исполнителя —
+        источник отзыва для агрегата."""
+        site = make_site(self.customer)
+        req = Request.objects.create(
+            site=site, customer=self.customer, work_type="geodesy",
+            description="x", location_type=LocationType.CITY, city=self.city,
+            status=RequestStatus.ACCEPTED, assigned_contractor=contractor,
+        )
+        return Review.objects.create(request=req, contractor=contractor, rating=rating)
+
+    def test_rating_is_null_when_no_reviews(self):
+        r = self.client_c.get(self._bids_url())
+        self.assertEqual(r.status_code, 200)
+        self.assertIsNone(r.data[0]["contractor"]["rating"])
+
+    def test_rating_average_and_count(self):
+        self._leave_review(self.contractor, 5)
+        self._leave_review(self.contractor, 4)
+        self._leave_review(self.contractor, 3)
+        r = self.client_c.get(self._bids_url())
+        rating = r.data[0]["contractor"]["rating"]
+        self.assertEqual(rating["avg"], 4.0)
+        self.assertEqual(rating["count"], 3)
+
+    def test_rating_rounds_to_one_decimal(self):
+        self._leave_review(self.contractor, 5)
+        self._leave_review(self.contractor, 5)
+        self._leave_review(self.contractor, 4)
+        r = self.client_c.get(self._bids_url())
+        self.assertEqual(r.data[0]["contractor"]["rating"]["avg"], 4.7)
+
+    def test_rating_avg_serializes_as_number_not_string(self):
+        """Avg() на PostgreSQL может вернуть Decimal — DRF JSONEncoder
+        сериализует Decimal как СТРОКУ, не число, если явно не привести к
+        float (см. reputation/services.py). Проверяем на сырых байтах ответа
+        (r.content), не через r.data — DRF Response.data содержит уже
+        Python-объекты ДО рендеринга в JSON, там это различие не видно."""
+        self._leave_review(self.contractor, 5)
+        r = self.client_c.get(self._bids_url())
+        raw = r.content.decode()
+        self.assertIn('"avg":5.0', raw.replace(" ", ""))
+
+    def test_ratings_do_not_mix_between_contractors(self):
+        other = make_contractor(email="other-contractor@test.kz")
+        Bid.objects.create(request=self.request_obj, contractor=other, price=90000, deadline_days=8)
+        self._leave_review(self.contractor, 5)
+        self._leave_review(other, 1)
+        r = self.client_c.get(self._bids_url())
+        by_contractor = {b["contractor"]["id"]: b["contractor"]["rating"] for b in r.data}
+        self.assertEqual(by_contractor[self.contractor.id]["avg"], 5.0)
+        self.assertEqual(by_contractor[other.id]["avg"], 1.0)
+
+    def test_rating_lookup_does_not_n_plus_one(self):
+        """По образцу test_my_bids_location_display_does_not_n_plus_one —
+        число запросов на 1 отклик и на 4 (разные исполнители, у каждого
+        свой отзыв) не должно расти: get_ratings_for_contractors — один
+        агрегатный запрос на весь список id, не по одному на исполнителя."""
+        with CaptureQueriesContext(connection) as ctx_one:
+            r = self.client_c.get(self._bids_url())
+        self.assertEqual(r.status_code, 200)
+        queries_for_one = len(ctx_one.captured_queries)
+
+        for i in range(3):
+            c = make_contractor(email=f"rated-{i}@test.kz")
+            Bid.objects.create(request=self.request_obj, contractor=c, price=90000, deadline_days=8)
+            self._leave_review(c, 5)
+        self._leave_review(self.contractor, 5)
+
+        with CaptureQueriesContext(connection) as ctx_four:
+            r = self.client_c.get(self._bids_url())
+        self.assertEqual(r.status_code, 200)
+        queries_for_four = len(ctx_four.captured_queries)
+
+        self.assertEqual(
+            queries_for_one, queries_for_four,
+            f"Запросы растут с числом откликов: {queries_for_one} на 1, "
+            f"{queries_for_four} на 4 — рейтинг делает запрос на каждый отклик.",
+        )

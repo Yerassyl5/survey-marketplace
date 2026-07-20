@@ -170,10 +170,20 @@ export async function getRequestDetail(id: number): Promise<FeedRequestDetail> {
   return apiFetch<FeedRequestDetail>(`/marketplace/requests/${id}/`);
 }
 
+/** avg — уже округлено до 1 знака на бэкенде (reputation/services.py) —
+ * фронт не форматирует, чтобы будущие потребители (карточка отклика,
+ * профиль исполнителя) не разошлись в знаках после запятой. null, не
+ * отсутствие поля — у исполнителя может не быть ни одного отзыва. */
+export interface ContractorRating {
+  avg: number;
+  count: number;
+}
+
 export interface ContractorBrief {
   id: number;
   full_name: string;
   verification_status: string | null;
+  rating: ContractorRating | null;
 }
 
 export interface BidPayload {

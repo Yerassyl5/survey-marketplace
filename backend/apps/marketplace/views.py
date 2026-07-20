@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.models import Role, VerificationStatus
+from apps.reputation.services import get_ratings_for_contractors
 
 from common.events import publish
 
@@ -262,6 +263,23 @@ class BidListCreateView(generics.ListCreateAPIView):
         return Bid.objects.select_related(
             "contractor", "contractor__contractor_profile"
         ).filter(request_id=self.kwargs["request_pk"])
+
+    def list(self, request, *args, **kwargs):
+        """Переопределяет ListModelMixin.list() один-в-один (эта вьюха без
+        пагинации — pagination_class не задан, self.paginate_queryset() и так
+        всегда вернул бы None), но добавляет агрегат рейтинга (reputation,
+        публичный сервис — architecture.md §1) в context ОДНИМ запросом на
+        весь список. get_queryset() вызывается один раз, не дважды: он делает
+        get_object_or_404 по владению + Bid-запрос, повторный вызов внутри
+        get_serializer_context() задвоил бы обе проверки на каждый GET."""
+        queryset = self.filter_queryset(self.get_queryset())
+        # unique_together("request", "contractor") на Bid — контрактор не
+        # повторяется в списке откликов ОДНОЙ заявки, distinct() не нужен.
+        contractor_ids = list(queryset.values_list("contractor_id", flat=True))
+        context = self.get_serializer_context()
+        context["ratings"] = get_ratings_for_contractors(contractor_ids)
+        serializer = self.get_serializer(queryset, many=True, context=context)
+        return Response(serializer.data)
 
     def perform_create(self, serializer):
         request_obj = get_object_or_404(

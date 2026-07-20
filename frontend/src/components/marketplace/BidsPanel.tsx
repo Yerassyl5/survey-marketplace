@@ -17,7 +17,7 @@ import { formatDate } from "@/components/ui/RequestRow";
 import { useRouter as useI18nRouter } from "@/i18n/navigation";
 import { AuthRequiredError } from "@/lib/api/client";
 import { awardBid, considerBid, getBids } from "@/lib/api/marketplace";
-import type { BidWithConsideration, MyRequest } from "@/lib/api/marketplace";
+import type { BidWithConsideration, ContractorRating, MyRequest } from "@/lib/api/marketplace";
 import { ApiError } from "@/lib/api/types";
 
 // Пока заявка не присвоена — рассмотрение и выбор ещё имеют смысл (совпадает
@@ -56,6 +56,33 @@ function ConsiderationTag({ consideredAt }: { consideredAt: string | null }) {
   return (
     <span style={{ ...style, background: "var(--ds-done-bg)", color: "var(--ds-done-text)" }}>
       Ожидает рассмотрения
+    </span>
+  );
+}
+
+// null, если у исполнителя нет ни одного отзыва — тогда не рисуем ничего
+// (ни звёзды, ни «нет отзывов»): отсутствие рейтинга не должно визуально
+// читаться как плохой рейтинг, тот же принцип, что у BidOutcomeTag ниже.
+function RatingBadge({ rating }: { rating: ContractorRating | null }) {
+  if (!rating) return null;
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "2px 10px",
+        borderRadius: "var(--ds-r-pill)",
+        fontSize: 11,
+        fontWeight: 600,
+        fontFamily: "var(--ds-font-body)",
+        whiteSpace: "nowrap",
+        background: "var(--ds-ver-bg)",
+        color: "var(--ds-ver-text)",
+        border: "1px solid var(--ds-ver-border)",
+      }}
+    >
+      ★ {rating.avg.toFixed(1)} ({rating.count})
     </span>
   );
 }
@@ -273,6 +300,7 @@ export function BidsPanel({ requestId, requestStatus, bidsCount, onAwarded }: Bi
                       {bid.contractor.full_name}
                     </span>
                     <VerificationBadge verified={bid.contractor.verification_status === "verified"} />
+                    <RatingBadge rating={bid.contractor.rating} />
                     <ConsiderationTag consideredAt={bid.considered_at} />
                     <BidOutcomeTag status={bid.status} />
                   </div>

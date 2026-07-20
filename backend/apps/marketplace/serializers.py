@@ -14,14 +14,29 @@ from .models import Bid, LocationType, Request, ResultEntry, ResultFile
 
 
 class ContractorBriefSerializer(serializers.Serializer):
-    """Краткая карточка исполнителя — заказчик видит статус верификации в каждом отклике."""
+    """Краткая карточка исполнителя — заказчик видит статус верификации и
+    агрегат рейтинга в каждом отклике. rating заполнен только там, где
+    context содержит "ratings" (см. BidListCreateView.list()) — в остальных
+    местах, где этот сериализатор используется без ratings в context
+    (MyBidListView/MyAwardedListView, BidCreateSerializer), rating
+    структурно будет null, это ожидаемо: этап не делает задела на эти
+    эндпоинты (см. docs/progress.md, блок «Репутация» этап 3)."""
     id = serializers.IntegerField()
     full_name = serializers.CharField()
     verification_status = serializers.SerializerMethodField()
+    rating = serializers.SerializerMethodField()
 
     def get_verification_status(self, user):
         profile = getattr(user, "contractor_profile", None)
         return profile.verification_status if profile else None
+
+    def get_rating(self, user):
+        # X | null, не X | undefined — поле присутствует в ответе всегда,
+        # значение None, если у исполнителя нет ни одного отзыва.
+        rating = self.context.get("ratings", {}).get(user.id)
+        if rating is None:
+            return None
+        return {"avg": rating.avg, "count": rating.count}
 
 
 class CustomerBriefSerializer(serializers.Serializer):
