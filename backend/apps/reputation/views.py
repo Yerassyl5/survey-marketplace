@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from drf_spectacular.utils import extend_schema, extend_schema_view
-from rest_framework import permissions, status
+from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -11,8 +11,8 @@ from apps.marketplace.models import Request, RequestStatus
 from common.events import publish
 
 from .events import ReviewLeft
-from .models import Review
-from .serializers import ReviewCreateSerializer, ReviewSerializer
+from .models import Review, ReviewTag
+from .serializers import ReviewCreateSerializer, ReviewSerializer, ReviewTagSerializer
 
 
 class IsCustomer(permissions.BasePermission):
@@ -79,3 +79,16 @@ class ReviewDetailCreateView(APIView):
             request_id=req.id, contractor_id=req.assigned_contractor_id, rating=review.rating,
         ))
         return Response(ReviewSerializer(review).data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema(tags=["reputation"], summary="Справочник тегов отзыва")
+class TagListView(generics.ListAPIView):
+    """Справочник тегов отзыва (ReviewTag, только положительные — architecture.md
+    §4.5), редактируется через Django Admin, без изменения кода. Без пагинации:
+    записей единицы (сейчас 6 засеянных), тот же принцип, что GET
+    /api/geo/locations/ (маленький почти статичный справочник). Порядок —
+    Meta.ordering=["name"] на модели, сериализатор его не переопределяет."""
+    queryset = ReviewTag.objects.all()
+    serializer_class = ReviewTagSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    pagination_class = None

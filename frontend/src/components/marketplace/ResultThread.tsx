@@ -119,7 +119,7 @@ export function ResultThread({ entries }: { entries: ResultEntry[] }) {
               </div>
 
               {entry.text && (
-                <p style={{ margin: 0, fontFamily: "var(--ds-font-body)", fontSize: 13.5, lineHeight: 1.55, color: "var(--ds-text-sec)", whiteSpace: "pre-wrap" }}>
+                <p style={{ margin: 0, fontFamily: "var(--ds-font-body)", fontSize: 13.5, lineHeight: 1.55, color: "var(--ds-text-sec)", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
                   {entry.text}
                 </p>
               )}

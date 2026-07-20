@@ -315,7 +315,7 @@ export function BidsPanel({ requestId, requestStatus, bidsCount, onAwarded }: Bi
                 </div>
 
                 {bid.comment && (
-                  <p style={{ fontFamily: "var(--ds-font-body)", fontSize: 14, color: "var(--ds-text-sec)", margin: 0, whiteSpace: "pre-wrap" }}>
+                  <p style={{ fontFamily: "var(--ds-font-body)", fontSize: 14, color: "var(--ds-text-sec)", margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
                     {bid.comment}
                   </p>
                 )}

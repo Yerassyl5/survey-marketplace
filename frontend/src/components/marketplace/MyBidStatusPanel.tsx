@@ -207,6 +207,7 @@ export function MyBidStatusPanel({ bid, requestStatus, onWithdrawSuccess }: MyBi
               color: "var(--ds-text-sec)",
               margin: 0,
               whiteSpace: "pre-wrap",
+              overflowWrap: "anywhere",
             }}
           >
             {bid.comment}

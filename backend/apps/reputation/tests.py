@@ -252,3 +252,58 @@ class ReviewAPITests(TestCase):
         self.assertEqual(published.request_id, self.request_obj.id)
         self.assertEqual(published.contractor_id, self.contractor.id)
         self.assertEqual(published.rating, 5)
+
+
+class TagListAPITests(TestCase):
+    """Этап 4 блока «Репутация» — справочник тегов для формы отзыва
+    (GET /api/reputation/tags/). Без пагинации, IsAuthenticated (тот же
+    уровень доступа, что чтение отзыва — не публично анонимам, но не
+    завязано на роль)."""
+
+    TAGS_URL = "/api/reputation/tags/"
+
+    def setUp(self):
+        self.customer = make_customer()
+        self.contractor = make_contractor()
+
+    def test_anon_returns_401(self):
+        r = APIClient().get(self.TAGS_URL)
+        self.assertEqual(r.status_code, 401)
+
+    def test_customer_sees_all_seeded_tags(self):
+        client = APIClient()
+        client.force_authenticate(self.customer)
+        r = client.get(self.TAGS_URL)
+        self.assertEqual(r.status_code, 200)
+        names = {tag["name"] for tag in r.data}
+        for expected in SeedMigrationTests.EXPECTED_SEEDED_NAMES:
+            self.assertIn(expected, names)
+
+    def test_contractor_can_also_read_tags(self):
+        """Не завязано на роль — справочник нужен обеим сторонам (заказчику
+        для формы отзыва, в будущем — исполнителю для просмотра)."""
+        client = APIClient()
+        client.force_authenticate(self.contractor)
+        r = client.get(self.TAGS_URL)
+        self.assertEqual(r.status_code, 200)
+
+    def test_response_is_not_paginated(self):
+        """pagination_class = None — голый массив, как GET /geo/locations/,
+        не {results: [...]}."""
+        client = APIClient()
+        client.force_authenticate(self.customer)
+        r = client.get(self.TAGS_URL)
+        self.assertIsInstance(r.data, list)
+
+    def test_tags_ordered_by_name(self):
+        client = APIClient()
+        client.force_authenticate(self.customer)
+        r = client.get(self.TAGS_URL)
+        names = [tag["name"] for tag in r.data]
+        self.assertEqual(names, sorted(names))
+
+    def test_tag_shape_has_id_and_name(self):
+        client = APIClient()
+        client.force_authenticate(self.customer)
+        r = client.get(self.TAGS_URL)
+        self.assertEqual(set(r.data[0].keys()), {"id", "name"})

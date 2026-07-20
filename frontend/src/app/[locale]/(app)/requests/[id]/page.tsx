@@ -26,6 +26,7 @@ import { BidForm } from "@/components/marketplace/BidForm";
 import { BidsPanel } from "@/components/marketplace/BidsPanel";
 import { MyBidStatusPanel } from "@/components/marketplace/MyBidStatusPanel";
 import { ResultReviewCard } from "@/components/marketplace/ResultReviewCard";
+import { ReviewCard } from "@/components/marketplace/ReviewCard";
 import { ResultSubmissionCard } from "@/components/marketplace/ResultSubmissionCard";
 import { useAuth } from "@/contexts/AuthContext";
 import { Link, useRouter as useI18nRouter } from "@/i18n/navigation";
@@ -318,7 +319,7 @@ function DetailContent({
         <div style={{ flex: "2 1 480px", display: "flex", flexDirection: "column", gap: 24 }}>
           {request.contractor_note && (
             <Alert variant="warning">
-              <div>
+              <div style={{ overflowWrap: "anywhere" }}>
                 <strong style={{ display: "block", marginBottom: 4 }}>Условия заказчика</strong>
                 {request.contractor_note}
               </div>
@@ -334,6 +335,7 @@ function DetailContent({
                 color: "var(--ds-text)",
                 margin: 0,
                 whiteSpace: "pre-wrap",
+                overflowWrap: "anywhere",
               }}
             >
               {request.description}
@@ -401,9 +403,13 @@ function DetailContent({
             />
           )}
 
-          {/* Задел под будущий блок отзыва об исполнителе (1.10, репутация) —
-             сам блок не строим сейчас, но место в порядке секций закреплено:
-             встанет здесь, ниже Результата, без переверстки. */}
+          {/* Отзыв (1.10) — только после accepted (гейт на бэкенде тот же,
+             но рендер условием ниже не даёт ReviewCard даже смонтироваться
+             раньше: её собственный GET .../review/ иначе улетал бы на
+             каждое открытие любой заявки в статусах до accepted). */}
+          {isOwnerView && request.status === "accepted" && (
+            <ReviewCard requestId={request.id} />
+          )}
         </div>
 
         {(showBidSidebar || isOwnerView) && (
