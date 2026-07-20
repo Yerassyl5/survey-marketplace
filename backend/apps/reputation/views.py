@@ -1,0 +1,81 @@
+from __future__ import annotations
+
+from drf_spectacular.utils import extend_schema, extend_schema_view
+from rest_framework import permissions, status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from apps.accounts.models import Role
+from apps.marketplace.models import Request, RequestStatus
+
+from common.events import publish
+
+from .events import ReviewLeft
+from .models import Review
+from .serializers import ReviewCreateSerializer, ReviewSerializer
+
+
+class IsCustomer(permissions.BasePermission):
+    """Дублируется по образцу marketplace/sites — в проекте нет общего
+    permissions.py, каждый app определяет свою минимальную проверку роли
+    (см. те же классы в apps.marketplace.views/apps.sites.views; техдолг
+    зафиксирован в docs/progress.md)."""
+    def has_permission(self, request, view) -> bool:
+        return bool(request.user and request.user.is_authenticated and request.user.role == Role.CUSTOMER)
+
+
+@extend_schema_view(
+    get=extend_schema(summary="Прочитать отзыв на заявку (публично, любой залогиненный)"),
+    post=extend_schema(summary="Оставить отзыв заказчиком (только после accepted)"),
+)
+@extend_schema(tags=["reputation"])
+class ReviewDetailCreateView(APIView):
+    """GET — отзыв публичен по решению продукта (PRODUCT_SPEC 1.10, инвариант
+    №9 новой редакции: после accepted факт победы не секрет) — IsAuthenticated,
+    БЕЗ проверки владения/роли. 404 — только когда отзыва физически нет (Review
+    существует исключительно при Request.status=accepted, других состояний
+    для существующего Review быть не может — сюда нечего утекать).
+
+    POST — только заказчик-владелец заявки, только в статусе accepted
+    (инварианты №1/№8). Один filter().first() — владение и статус
+    неразличимы для наблюдателя (паттерн AcceptView/ReturnView). Дубль — 409:
+    заказчик-владелец и так знает, что заявка есть и отзыв уже оставлен
+    (паттерн ConsiderBidView/WithdrawBidView), 404 тут сбивал бы фронт с
+    толку."""
+
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsCustomer()]
+        return [permissions.IsAuthenticated()]
+
+    def get(self, request, pk):
+        review = Review.objects.select_related("contractor").prefetch_related("tags").filter(
+            request_id=pk
+        ).first()
+        if not review:
+            return Response({"detail": "Отзыв не найден."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(ReviewSerializer(review).data)
+
+    def post(self, request, pk):
+        req = Request.objects.filter(
+            pk=pk, customer=request.user, status=RequestStatus.ACCEPTED
+        ).first()
+        if not req:
+            return Response({"detail": "Заявка не найдена или недоступна."}, status=status.HTTP_404_NOT_FOUND)
+        if Review.objects.filter(request=req).exists():
+            return Response({"detail": "Отзыв на эту заявку уже оставлен."}, status=status.HTTP_409_CONFLICT)
+        if req.assigned_contractor_id is None:
+            # Request.assigned_contractor — SET_NULL: если аккаунт исполнителя
+            # удалён после закрытия сделки, поле обнуляется, а Review.contractor
+            # не nullable — без этой проверки serializer.save() упал бы 500
+            # вместо внятного ответа.
+            return Response(
+                {"detail": "Исполнитель по этой заявке недоступен."}, status=status.HTTP_409_CONFLICT
+            )
+        serializer = ReviewCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        review = serializer.save(request=req, contractor=req.assigned_contractor)
+        publish(ReviewLeft(
+            request_id=req.id, contractor_id=req.assigned_contractor_id, rating=review.rating,
+        ))
+        return Response(ReviewSerializer(review).data, status=status.HTTP_201_CREATED)
