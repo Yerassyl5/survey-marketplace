@@ -25,6 +25,7 @@ import { SiteMap } from "@/components/ui/SiteMap";
 import { BidForm } from "@/components/marketplace/BidForm";
 import { BidsPanel } from "@/components/marketplace/BidsPanel";
 import { MyBidStatusPanel } from "@/components/marketplace/MyBidStatusPanel";
+import { MyReviewCard } from "@/components/marketplace/MyReviewCard";
 import { ResultReviewCard } from "@/components/marketplace/ResultReviewCard";
 import { ReviewCard } from "@/components/marketplace/ReviewCard";
 import { ResultSubmissionCard } from "@/components/marketplace/ResultSubmissionCard";
@@ -385,6 +386,15 @@ function DetailContent({
               resultEntries={request.result_entries ?? []}
               onSubmitResultSuccess={onSubmitResultSuccess}
             />
+          )}
+
+          {/* Отзыв заказчика (1.10) — только победителю, только на accepted.
+             Проигравшему не показываем вообще: request.status ему структурно
+             не приходит (см. docs/progress.md, план этапа 5), условие рендера
+             построить не на чем, а остальной UI страницы для него и так нигде
+             не раскрывает исход сделки. */}
+          {request.my_bid?.status === "selected" && request.status === "accepted" && (
+            <MyReviewCard requestId={request.id} />
           )}
 
           {/* Заказчик-владелец, симметрично ResultSubmissionCard выше — для всей
