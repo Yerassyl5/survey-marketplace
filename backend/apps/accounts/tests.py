@@ -1,5 +1,6 @@
 """Верификация исполнителя: пересдача документов сбрасывает решение модератора.
-Профиль (этап 2): GET/PATCH /accounts/profile/, смена пароля, валидация телефона."""
+Профиль (этап 2): GET/PATCH /accounts/profile/, смена пароля, валидация телефона.
+Профиль (этап 3): публичная карточка исполнителя GET /accounts/contractors/{id}/."""
 from __future__ import annotations
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -230,3 +231,49 @@ class RegistrationPhoneValidationTests(TestCase):
             "phone": "+7 (701) 123-45-67", "iin": "123456789012",
         }, format="json")
         self.assertEqual(r.status_code, 201)
+
+
+class ContractorPublicViewTests(TestCase):
+    def setUp(self):
+        self.client_e = APIClient()
+        self.contractor = make_contractor(
+            verification_status=VerificationStatus.REJECTED, rejection_reason="Аттестат просрочен.",
+        )
+        self.contractor.contractor_profile.portfolio_description = "10 лет геодезии в Алматы"
+        self.contractor.contractor_profile.save()
+        self.customer = make_customer()
+        self.client_e.force_authenticate(self.customer)
+
+    def test_returns_expected_fields(self):
+        r = self.client_e.get(f"/api/accounts/contractors/{self.contractor.id}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["full_name"], "Исполнитель Тест")
+        self.assertEqual(r.data["verification_status"], VerificationStatus.REJECTED)
+        self.assertEqual(r.data["portfolio_description"], "10 лет геодезии в Алматы")
+        # rejection_reason приватна — этой карточки не касается вообще, ключа нет.
+        self.assertNotIn("rejection_reason", r.data)
+
+    def test_customer_id_returns_404(self):
+        r = self.client_e.get(f"/api/accounts/contractors/{self.customer.id}/")
+        self.assertEqual(r.status_code, 404)
+
+    def test_nonexistent_id_returns_404(self):
+        r = self.client_e.get("/api/accounts/contractors/999999/")
+        self.assertEqual(r.status_code, 404)
+
+    def test_requires_auth(self):
+        r = APIClient().get(f"/api/accounts/contractors/{self.contractor.id}/")
+        self.assertEqual(r.status_code, 401)
+
+    def test_contractor_without_profile_does_not_crash(self):
+        """ContractorProfile создаётся вместе с User в ContractorRegistrationSerializer,
+        но не в одной транзакции — на случай рассинхрона сериализатор должен
+        вернуть None/"", а не упасть 500 на голом user.contractor_profile."""
+        orphan = User.objects.create_user(
+            email="orphan@test.kz", password="pass", role=Role.CONTRACTOR,
+            person_type="individual", full_name="Без профиля", phone="700",
+        )
+        r = self.client_e.get(f"/api/accounts/contractors/{orphan.id}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertIsNone(r.data["verification_status"])
+        self.assertEqual(r.data["portfolio_description"], "")

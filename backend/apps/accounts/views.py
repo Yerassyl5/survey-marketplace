@@ -14,6 +14,7 @@ from .models import Role, User
 from .serializers import (
     ChangePasswordSerializer,
     ContractorDocumentUploadSerializer,
+    ContractorPublicSerializer,
     ContractorRegistrationSerializer,
     CustomerRegistrationSerializer,
     LoginSerializer,
@@ -102,3 +103,17 @@ class ChangePasswordView(APIView):
         for token in OutstandingToken.objects.filter(user=request.user):
             BlacklistedToken.objects.get_or_create(token=token)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@extend_schema(tags=["accounts"], summary="Публичная карточка исполнителя")
+class ContractorPublicView(generics.RetrieveAPIView):
+    """pk — любой User.id. 404 одинаково для несуществующего id и для id
+    заказчика (queryset уже отфильтрован по role=CONTRACTOR) — сторонний
+    наблюдатель не должен различать «нет такого» от «есть, но не исполнитель».
+
+    Правило «это исполнитель» ПРОДУБЛИРОВАНО в apps.reputation.views.
+    ContractorReviewsView (там — явный .exists()-чек, здесь — фильтр
+    queryset) — при изменении условия менять синхронно в обоих местах."""
+    serializer_class = ContractorPublicSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    queryset = User.objects.filter(role=Role.CONTRACTOR).select_related("contractor_profile")

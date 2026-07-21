@@ -307,3 +307,38 @@ class TagListAPITests(TestCase):
         client.force_authenticate(self.customer)
         r = client.get(self.TAGS_URL)
         self.assertEqual(set(r.data[0].keys()), {"id", "name"})
+
+
+class ContractorReviewsAPITests(TestCase):
+    def setUp(self):
+        self.client_c = APIClient()
+        self.customer = make_customer()
+        self.contractor = make_contractor()
+        self.client_c.force_authenticate(self.customer)
+
+    def test_returns_rating_and_reviews_for_contractor_with_reviews(self):
+        req = make_accepted_request(self.customer, self.contractor)
+        Review.objects.create(request=req, contractor=self.contractor, rating=5, comment="Отлично")
+        r = self.client_c.get(f"/api/reputation/contractors/{self.contractor.id}/reviews/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["rating"], {"avg": 5.0, "count": 1})
+        self.assertEqual(len(r.data["reviews"]), 1)
+        self.assertEqual(r.data["reviews"][0]["comment"], "Отлично")
+
+    def test_returns_null_rating_and_empty_list_without_reviews(self):
+        r = self.client_c.get(f"/api/reputation/contractors/{self.contractor.id}/reviews/")
+        self.assertEqual(r.status_code, 200)
+        self.assertIsNone(r.data["rating"])
+        self.assertEqual(r.data["reviews"], [])
+
+    def test_customer_id_returns_404(self):
+        r = self.client_c.get(f"/api/reputation/contractors/{self.customer.id}/reviews/")
+        self.assertEqual(r.status_code, 404)
+
+    def test_nonexistent_id_returns_404(self):
+        r = self.client_c.get("/api/reputation/contractors/999999/reviews/")
+        self.assertEqual(r.status_code, 404)
+
+    def test_requires_auth(self):
+        r = APIClient().get(f"/api/reputation/contractors/{self.contractor.id}/reviews/")
+        self.assertEqual(r.status_code, 401)

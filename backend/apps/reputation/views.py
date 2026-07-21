@@ -5,7 +5,7 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.accounts.models import Role
+from apps.accounts.models import Role, User
 from apps.marketplace.models import Request, RequestStatus
 
 from common.events import publish
@@ -13,6 +13,7 @@ from common.events import publish
 from .events import ReviewLeft
 from .models import Review, ReviewTag
 from .serializers import ReviewCreateSerializer, ReviewSerializer, ReviewTagSerializer
+from .services import get_ratings_for_contractors
 
 
 class IsCustomer(permissions.BasePermission):
@@ -79,6 +80,30 @@ class ReviewDetailCreateView(APIView):
             request_id=req.id, contractor_id=req.assigned_contractor_id, rating=review.rating,
         ))
         return Response(ReviewSerializer(review).data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema(tags=["reputation"], summary="Рейтинг и отзывы исполнителя (публично)")
+class ContractorReviewsView(APIView):
+    """pk — тот же контракт, что accounts.views.ContractorPublicView: 404
+    одинаково для несуществующего id и для id заказчика (сторонний наблюдатель
+    не должен различать эти два случая). Без пагинации — максимум отзывов на
+    одного исполнителя в dev-БД сейчас 4 (проверено запросом при планировании
+    этапа), тот же принцип, что у TagListView ниже.
+
+    Правило «это исполнитель» ПРОДУБЛИРОВАНО в apps.accounts.views.
+    ContractorPublicView (там — фильтр queryset, здесь — явный .exists()) —
+    при изменении условия менять синхронно в обоих местах."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, pk):
+        if not User.objects.filter(pk=pk, role=Role.CONTRACTOR).exists():
+            return Response({"detail": "Исполнитель не найден."}, status=status.HTTP_404_NOT_FOUND)
+        reviews = Review.objects.select_related("contractor").prefetch_related("tags").filter(contractor_id=pk)
+        rating = get_ratings_for_contractors([pk]).get(pk)
+        return Response({
+            "rating": {"avg": rating.avg, "count": rating.count} if rating else None,
+            "reviews": ReviewSerializer(reviews, many=True).data,
+        })
 
 
 @extend_schema(tags=["reputation"], summary="Справочник тегов отзыва")

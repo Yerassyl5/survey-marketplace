@@ -262,3 +262,35 @@ class ChangePasswordSerializer(serializers.Serializer):
         if not user.check_password(value):
             raise serializers.ValidationError("Неверный текущий пароль.")
         return value
+
+
+class ContractorPublicSerializer(serializers.ModelSerializer):
+    """GET /accounts/contractors/{id}/ — публичная карточка, видна любому
+    залогиненному (обе роли, этап 3 «Профиля»). Показываем строго то, что в
+    скоупе: имя, верификация, «О себе». НЕ email/phone/iin/bin/
+    organization_name/position — те приватные (см. ProfileSerializer, этап 2).
+
+    verification_status показывается ВКЛЮЧАЯ значение rejected — осознанно:
+    заказчику полезно знать, что исполнитель не прошёл проверку, до того как
+    рассматривать его отклик. rejection_reason (сама причина отказа) при этом
+    остаётся приватной — только в ProfileSerializer, самому исполнителю.
+    """
+    verification_status = serializers.SerializerMethodField()
+    portfolio_description = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ["id", "full_name", "verification_status", "portfolio_description"]
+
+    def get_verification_status(self, user: User) -> str | None:
+        # getattr(..., None) — тот же приём, что уже в ContractorBriefSerializer
+        # (marketplace/serializers.py): ContractorProfile создаётся вместе с
+        # User в ContractorRegistrationSerializer.create(), но не в одной
+        # транзакции — если создание профиля когда-либо упадёт после создания
+        # User, здесь не должно быть 500 на голом .contractor_profile.
+        profile = getattr(user, "contractor_profile", None)
+        return profile.verification_status if profile else None
+
+    def get_portfolio_description(self, user: User) -> str:
+        profile = getattr(user, "contractor_profile", None)
+        return profile.portfolio_description if profile else ""
