@@ -90,6 +90,10 @@ class ContractorProfile(models.Model):
     verification_status = models.CharField(
         max_length=20, choices=VerificationStatus.choices, default=VerificationStatus.PENDING
     )
+    # Причина отказа — заполняется модератором вручную при verification_status=rejected
+    # (техдолг 1.2). Не накапливается: перезатирается при каждом решении/пересдаче,
+    # тот же принцип, что уже у Request.return_note.
+    rejection_reason = models.TextField(blank=True)
     verification_method = models.CharField(
         max_length=20, choices=VerificationMethod.choices, default=VerificationMethod.MANUAL
     )

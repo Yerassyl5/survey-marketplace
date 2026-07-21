@@ -515,6 +515,31 @@ class RequestLifecycleTest(TestCase):
         self.assertIn("verification_status", r.data[0]["contractor"])
         self.assertEqual(r.data[0]["contractor"]["verification_status"], VerificationStatus.PENDING)
 
+    def test_reupload_documents_hides_verified_badge_from_customer(self):
+        """Связка «пересдал документы → заказчик больше не видит галочку верификации»
+        через реальный запрос к обоим эндпоинтам (не чтением поля модели) —
+        именно ради неё сброс verification_status при пересдаче сделан безусловным
+        (accounts.serializers.ContractorDocumentUploadSerializer.update)."""
+        verified_contractor = make_contractor(email="verified@test.kz", verified=True)
+        client_verified = APIClient()
+        client_verified.force_authenticate(verified_contractor)
+
+        req = self._create_request()
+        client_verified.post(f"/api/marketplace/requests/{req.id}/bids/", self._bid_payload(), format="json")
+
+        r_before = self.client_c.get(f"/api/marketplace/requests/{req.id}/bids/")
+        self.assertEqual(r_before.data[0]["contractor"]["verification_status"], VerificationStatus.VERIFIED)
+
+        scan = SimpleUploadedFile("license.pdf", b"fake pdf content", content_type="application/pdf")
+        r_patch = client_verified.patch(
+            "/api/accounts/contractor/documents/", {"license_scan": scan}, format="multipart",
+        )
+        self.assertEqual(r_patch.status_code, 200)
+
+        r_after = self.client_c.get(f"/api/marketplace/requests/{req.id}/bids/")
+        self.assertNotEqual(r_after.data[0]["contractor"]["verification_status"], VerificationStatus.VERIFIED)
+        self.assertEqual(r_after.data[0]["contractor"]["verification_status"], VerificationStatus.PENDING)
+
     def test_duplicate_bid_rejected(self):
         req = self._create_request()
         self.client_e.post(f"/api/marketplace/requests/{req.id}/bids/", self._bid_payload(), format="json")

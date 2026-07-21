@@ -90,7 +90,7 @@ class ContractorProfileAdmin(admin.ModelAdmin):
             "Документы",
             {"fields": ["license_number", "attestation_number", "license_expiry", "license_scan", "attestation_scan"]},
         ),
-        ("Верификация", {"fields": ["verification_status", "verification_method"]}),
+        ("Верификация", {"fields": ["verification_status", "rejection_reason", "verification_method"]}),
         ("Служебное", {"fields": ["created_at", "updated_at"]}),
     ]
 

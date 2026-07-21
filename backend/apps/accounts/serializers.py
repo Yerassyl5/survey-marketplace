@@ -9,7 +9,7 @@ from rest_framework_simplejwt.settings import api_settings as simplejwt_settings
 from common.events import publish
 
 from .events import UserRegistered
-from .models import ContractorProfile, PersonType, Role, User
+from .models import ContractorProfile, PersonType, Role, User, VerificationStatus
 
 
 class BaseRegistrationSerializer(serializers.ModelSerializer):
@@ -108,6 +108,15 @@ class ContractorDocumentUploadSerializer(serializers.ModelSerializer):
     class Meta:
         model = ContractorProfile
         fields = ["license_scan", "attestation_scan"]
+
+    def update(self, instance, validated_data):
+        # Любая пересдача документов обнуляет решение модератора — ВКЛЮЧАЯ
+        # verified→pending: иначе верифицированный исполнитель мог бы молча
+        # подменить скан лицензии на другой, оставшись «верифицирован» перед
+        # заказчиком на непроверенных документах.
+        validated_data["verification_status"] = VerificationStatus.PENDING
+        validated_data["rejection_reason"] = ""
+        return super().update(instance, validated_data)
 
 
 class LoginSerializer(TokenObtainPairSerializer):
