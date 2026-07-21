@@ -10,10 +10,12 @@ from common.events import publish
 
 from .events import UserRegistered
 from .models import ContractorProfile, PersonType, Role, User, VerificationStatus
+from .validators import validate_phone_format
 
 
 class BaseRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=8)
+    phone = serializers.CharField(validators=[validate_phone_format])
 
     class Meta:
         model = User
@@ -189,3 +191,74 @@ class MeSerializer(serializers.ModelSerializer):
         if user.role != Role.CONTRACTOR:
             return None
         return user.contractor_profile.verification_status
+
+
+class ProfileSerializer(serializers.ModelSerializer):
+    """GET/PATCH /accounts/profile/ — в отличие от MeSerializer (лёгкий, для
+    каждой загрузки приложения), это полный набор данных для /ru/settings.
+    Редактируется ТОЛЬКО phone (обе роли) и portfolio_description (только
+    contractor, физически хранится на ContractorProfile, не на User)."""
+    phone = serializers.CharField(validators=[validate_phone_format])
+    portfolio_description = serializers.CharField(required=False, allow_blank=True)
+    verification_status = serializers.SerializerMethodField()
+    rejection_reason = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            "id", "email", "role", "person_type", "full_name", "phone",
+            "iin", "bin", "organization_name", "position",
+            "portfolio_description", "verification_status", "rejection_reason",
+        ]
+        read_only_fields = [
+            "id", "email", "role", "person_type", "full_name",
+            "iin", "bin", "organization_name", "position",
+            "verification_status", "rejection_reason",
+        ]
+
+    def get_verification_status(self, user: User) -> str | None:
+        if user.role != Role.CONTRACTOR:
+            return None
+        return user.contractor_profile.verification_status
+
+    def get_rejection_reason(self, user: User) -> str | None:
+        if user.role != Role.CONTRACTOR:
+            return None
+        return user.contractor_profile.rejection_reason
+
+    def to_representation(self, instance):
+        # portfolio_description физически на ContractorProfile, не на User —
+        # обычный CharField без source молча пропал бы из ответа (SkipField,
+        # т.к. required=False и getattr(user, "portfolio_description") падает
+        # AttributeError). Тот же приём, что уже в ContractorRegistrationSerializer
+        # .to_representation() для license_number/attestation_number/license_expiry.
+        data = super().to_representation(instance)
+        data["portfolio_description"] = (
+            instance.contractor_profile.portfolio_description if instance.role == Role.CONTRACTOR else None
+        )
+        return data
+
+    def validate_portfolio_description(self, value: str) -> str:
+        if self.instance.role != Role.CONTRACTOR:
+            raise serializers.ValidationError("Доступно только исполнителю.")
+        return value
+
+    def update(self, instance, validated_data):
+        portfolio_description = validated_data.pop("portfolio_description", None)
+        instance = super().update(instance, validated_data)
+        if portfolio_description is not None:
+            ContractorProfile.objects.filter(user=instance).update(
+                portfolio_description=portfolio_description
+            )
+        return instance
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    current_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate_current_password(self, value: str) -> str:
+        user = self.context["request"].user
+        if not user.check_password(value):
+            raise serializers.ValidationError("Неверный текущий пароль.")
+        return value

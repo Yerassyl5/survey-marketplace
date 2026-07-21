@@ -6,16 +6,19 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from .models import Role
+from .models import Role, User
 from .serializers import (
+    ChangePasswordSerializer,
     ContractorDocumentUploadSerializer,
     ContractorRegistrationSerializer,
     CustomerRegistrationSerializer,
     LoginSerializer,
     MeSerializer,
+    ProfileSerializer,
 )
 
 
@@ -73,3 +76,29 @@ class MeView(generics.RetrieveAPIView):
 
     def get_object(self):
         return self.request.user
+
+
+@extend_schema(tags=["accounts"], summary="Просмотр/редактирование своего профиля")
+class ProfileView(generics.RetrieveUpdateAPIView):
+    serializer_class = ProfileSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        # select_related — ProfileSerializer обращается к contractor_profile
+        # дважды (verification_status/rejection_reason), без него это была бы
+        # лишняя query на каждое поле для роли contractor.
+        return User.objects.select_related("contractor_profile").get(pk=self.request.user.pk)
+
+
+@extend_schema(tags=["accounts"], summary="Смена пароля — блеклистит все refresh-токены пользователя")
+class ChangePasswordView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        serializer = ChangePasswordSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        request.user.set_password(serializer.validated_data["new_password"])
+        request.user.save(update_fields=["password"])
+        for token in OutstandingToken.objects.filter(user=request.user):
+            BlacklistedToken.objects.get_or_create(token=token)
+        return Response(status=status.HTTP_204_NO_CONTENT)
