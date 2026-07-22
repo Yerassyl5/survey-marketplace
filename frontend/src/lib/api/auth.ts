@@ -6,6 +6,7 @@ import { apiFetch } from "./client";
 import { clearTokens, getRefreshToken, setTokens } from "./tokens";
 import type {
   ChangePasswordPayload,
+  ContractorPublicResponse,
   ContractorRegistrationPayload,
   CustomerRegistrationPayload,
   LoginPayload,
@@ -98,4 +99,13 @@ export async function uploadContractorDocuments(files: {
     method: "PATCH",
     body: formData,
   });
+}
+
+/** GET /accounts/contractors/{id}/ — публичная карточка исполнителя, для
+ * ЧУЖОГО профиля (этап 5). На своей карточке используется getProfile() —
+ * см. докстринг ContractorCardPage: один и тот же ProfileResponse кормит и
+ * отображение, и форму редактирования "О себе", без второго типа. 404 —
+ * одинаково для несуществующего id и для id заказчика (backend, этап 3). */
+export async function getContractorPublic(id: number): Promise<ContractorPublicResponse> {
+  return apiFetch<ContractorPublicResponse>(`/accounts/contractors/${id}/`);
 }

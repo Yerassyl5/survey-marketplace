@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { VerificationBadge } from "@/components/ui/Badge";
 import { formatDate } from "@/components/ui/RequestRow";
-import { useRouter as useI18nRouter } from "@/i18n/navigation";
+import { Link, useRouter as useI18nRouter } from "@/i18n/navigation";
 import { AuthRequiredError } from "@/lib/api/client";
 import { awardBid, considerBid, getBids } from "@/lib/api/marketplace";
 import type { BidWithConsideration, ContractorRating, MyRequest } from "@/lib/api/marketplace";
@@ -296,9 +296,18 @@ export function BidsPanel({ requestId, requestStatus, bidsCount, onAwarded }: Bi
               >
                 <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <span style={{ fontFamily: "var(--ds-font-heading)", fontSize: 15, fontWeight: 700, color: "var(--ds-text)" }}>
+                    <Link
+                      href={`/contractors/${bid.contractor.id}`}
+                      style={{
+                        fontFamily: "var(--ds-font-heading)",
+                        fontSize: 15,
+                        fontWeight: 700,
+                        color: "var(--ds-text)",
+                        textDecoration: "none",
+                      }}
+                    >
                       {bid.contractor.full_name}
-                    </span>
+                    </Link>
                     <VerificationBadge verified={bid.contractor.verification_status === "verified"} />
                     <RatingBadge rating={bid.contractor.rating} />
                     <ConsiderationTag consideredAt={bid.considered_at} />

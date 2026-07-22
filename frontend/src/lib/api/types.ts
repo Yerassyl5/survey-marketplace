@@ -74,11 +74,25 @@ export interface ProfileResponse {
   rejection_reason: string | null;
   has_license_scan: boolean;
   has_attestation_scan: boolean;
+  date_joined: string;
+  completed_requests_count: number;
 }
 
 export interface UpdateProfilePayload {
   phone?: string;
   portfolio_description?: string;
+}
+
+/** GET /accounts/contractors/{id}/ — публичная карточка (этап 3/5), видна
+ * любому залогиненному. Подмножество ProfileResponse — без приватных полей
+ * (email/phone/iin/bin/organization_name/position/rejection_reason). */
+export interface ContractorPublicResponse {
+  id: number;
+  full_name: string;
+  verification_status: VerificationStatus | null;
+  portfolio_description: string | null;
+  date_joined: string;
+  completed_requests_count: number;
 }
 
 export interface ChangePasswordPayload {

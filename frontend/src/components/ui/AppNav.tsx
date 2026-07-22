@@ -70,6 +70,7 @@ function Logo() {
 
 /* ── Типы ───────────────────────────────────────────────────────────────── */
 export interface AppNavUser {
+  id: number;
   name: string;
   role: "customer" | "contractor";
 }
@@ -333,6 +334,28 @@ export function AppNav({
                   gap: 2,
                 }}
               >
+                {/* Только у исполнителя — у заказчика нет публичной карточки
+                   (этап 5, решено). Порядок: Профиль → Настройки → Выйти. */}
+                {user.role === "contractor" && (
+                  <a
+                    href={`/ru/contractors/${user.id}`}
+                    role="menuitem"
+                    onClick={() => setMenuOpen(false)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      padding: "8px 12px",
+                      borderRadius: "var(--ds-r-sm)",
+                      fontFamily: "var(--ds-font-body)",
+                      fontSize: 13,
+                      fontWeight: 500,
+                      color: "var(--ds-text)",
+                      textDecoration: "none",
+                    }}
+                  >
+                    Профиль
+                  </a>
+                )}
                 <a
                   href="/ru/settings"
                   role="menuitem"

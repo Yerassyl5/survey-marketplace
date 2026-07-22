@@ -53,3 +53,24 @@ export async function createReview(requestId: number, payload: CreateReviewPaylo
 export async function getReviewTags(): Promise<ReviewTag[]> {
   return apiFetch<ReviewTag[]>("/reputation/tags/");
 }
+
+/** Агрегат рейтинга — та же форма {avg, count}, что ContractorRating в
+ * lib/api/marketplace.ts (BidsPanel), но НЕ импортируется оттуда: страница
+ * карточки исполнителя не должна тянуть модуль marketplace ради одного
+ * тождественного по форме типа (см. разведку этапа 5). */
+export interface ContractorRatingSummary {
+  avg: number;
+  count: number;
+}
+
+export interface ContractorReviewsResponse {
+  rating: ContractorRatingSummary | null;
+  reviews: Review[];
+}
+
+/** GET /reputation/contractors/{id}/reviews/ — публично любому залогиненному
+ * (этап 3). 404 — тот же контракт, что у accounts.getContractorPublic: не
+ * различает несуществующий id от id заказчика. */
+export async function getContractorReviews(contractorId: number): Promise<ContractorReviewsResponse> {
+  return apiFetch<ContractorReviewsResponse>(`/reputation/contractors/${contractorId}/reviews/`);
+}

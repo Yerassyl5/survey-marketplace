@@ -16,22 +16,26 @@ import type { AppNavLink } from "@/components/ui/AppNav";
 import { AppFooter } from "@/components/ui/AppFooter";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePathname, useRouter } from "@/i18n/navigation";
+import type { MeResponse } from "@/lib/api/types";
 
 // Ссылки навигации по роли — дефолтный экран заказчика «Мои заявки», общую
 // ленту открывает по желанию (видит её обезличенно, откликаться не может).
-const NAV_LINKS: Record<"customer" | "contractor", AppNavLink[]> = {
-  customer: [
-    { label: "Мои заявки", href: "/ru/requests/my" },
-    { label: "Лента заявок", href: "/ru/feed" },
-    { label: "Профиль", href: "#" },
-  ],
-  contractor: [
+// «Профиль» здесь больше НЕТ — переехал в выпадающее меню user-chip'а
+// (AppNav, только для contractor), горизонтальное меню — не то место для
+// него по итогам браузерной проверки.
+function navLinksFor(user: MeResponse): AppNavLink[] {
+  if (user.role === "customer") {
+    return [
+      { label: "Мои заявки", href: "/ru/requests/my" },
+      { label: "Лента заявок", href: "/ru/feed" },
+    ];
+  }
+  return [
     { label: "Лента заявок", href: "/ru/feed" },
     { label: "Мои отклики", href: "/ru/requests/my-bids" },
     { label: "Мои сделки", href: "/ru/requests/my-work" },
-    { label: "Профиль", href: "#" },
-  ],
-};
+  ];
+}
 
 function Spinner() {
   return (
@@ -65,6 +69,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   }
   // "/requests/my-bids".startsWith("/requests/my") тоже true — префиксом не
   // разойтись, нужна граница сегмента (/requests/my либо /requests/my/...).
+  // "Профиль" здесь больше не подсвечивается — его нет в горизонтальном меню
+  // (переехал в выпадашку user-chip'а, у выпадашки подсветки активного
+  // пункта не предусмотрено вовсе).
   const activeLink = pathname.startsWith("/feed")
     ? "Лента заявок"
     : pathname === "/requests/my" || pathname.startsWith("/requests/my/")
@@ -102,8 +109,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       <AppNav
         variant="app"
         activeLink={activeLink}
-        user={{ name: user.full_name, role: user.role }}
-        links={NAV_LINKS[user.role]}
+        user={{ id: user.id, name: user.full_name, role: user.role }}
+        links={navLinksFor(user)}
         onLogout={handleLogout}
       />
       <main style={{ flex: 1 }}>{children}</main>
