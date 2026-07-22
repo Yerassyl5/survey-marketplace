@@ -202,6 +202,8 @@ class ProfileSerializer(serializers.ModelSerializer):
     portfolio_description = serializers.CharField(required=False, allow_blank=True)
     verification_status = serializers.SerializerMethodField()
     rejection_reason = serializers.SerializerMethodField()
+    has_license_scan = serializers.SerializerMethodField()
+    has_attestation_scan = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -209,11 +211,13 @@ class ProfileSerializer(serializers.ModelSerializer):
             "id", "email", "role", "person_type", "full_name", "phone",
             "iin", "bin", "organization_name", "position",
             "portfolio_description", "verification_status", "rejection_reason",
+            "has_license_scan", "has_attestation_scan",
         ]
         read_only_fields = [
             "id", "email", "role", "person_type", "full_name",
             "iin", "bin", "organization_name", "position",
             "verification_status", "rejection_reason",
+            "has_license_scan", "has_attestation_scan",
         ]
 
     def get_verification_status(self, user: User) -> str | None:
@@ -225,6 +229,22 @@ class ProfileSerializer(serializers.ModelSerializer):
         if user.role != Role.CONTRACTOR:
             return None
         return user.contractor_profile.rejection_reason
+
+    def get_has_license_scan(self, user: User) -> bool:
+        # Файл, не URL — /ru/settings различает «ничего не загружал» (оба false,
+        # призыв к действию) от «на проверке» (загрузил хотя бы один, ждёт
+        # решения), а ContractorDocumentUploadView сейчас write-only (только
+        # PATCH, без GET) — без этих двух полей отличить состояния было бы
+        # нечем. bool(FileField) — False у пустого поля, тот же приём, что
+        # везде в шаблонах Django для проверки "файл прикреплён".
+        if user.role != Role.CONTRACTOR:
+            return False
+        return bool(user.contractor_profile.license_scan)
+
+    def get_has_attestation_scan(self, user: User) -> bool:
+        if user.role != Role.CONTRACTOR:
+            return False
+        return bool(user.contractor_profile.attestation_scan)
 
     def to_representation(self, instance):
         # portfolio_description физически на ContractorProfile, не на User —

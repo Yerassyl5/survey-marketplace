@@ -49,6 +49,36 @@ export interface MeResponse {
   verification_status: VerificationStatus | null;
 }
 
+/** GET/PATCH /accounts/profile/ — полный набор для /ru/settings, отдельно от
+ * MeResponse (тот лёгкий, дёргается на каждой загрузке приложения). */
+export interface ProfileResponse {
+  id: number;
+  email: string;
+  role: Role;
+  person_type: PersonType;
+  full_name: string;
+  phone: string;
+  iin: string;
+  bin: string;
+  organization_name: string;
+  position: string;
+  portfolio_description: string | null;
+  verification_status: VerificationStatus | null;
+  rejection_reason: string | null;
+  has_license_scan: boolean;
+  has_attestation_scan: boolean;
+}
+
+export interface UpdateProfilePayload {
+  phone?: string;
+  portfolio_description?: string;
+}
+
+export interface ChangePasswordPayload {
+  current_password: string;
+  new_password: string;
+}
+
 /** Ошибка валидации DRF: { "field": ["сообщение", ...], ... } */
 export type ApiFieldErrors = Record<string, string[]>;
 

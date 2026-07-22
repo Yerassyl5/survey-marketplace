@@ -7,6 +7,7 @@
    activeLink        → подчёркивает активный пункт
    ──────────────────────────────────────────────────────────────────────── */
 
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 /* ── Лого ───────────────────────────────────────────────────────────────── */
@@ -83,6 +84,12 @@ export interface AppNavProps {
   activeLink?: string;
   user?: AppNavUser;
   links?: AppNavLink[];
+  /** Пункт «Выйти» в выпадающем меню user-chip'а. AppNav не знает про
+   * AuthContext сам (остаётся презентационным компонентом, как и раньше) —
+   * вызывающая сторона ((app)/layout.tsx) решает, что значит «выйти»
+   * (обычный logout с блеклистом ОДНОГО refresh-токена — не путать со сменой
+   * пароля на /ru/settings, там логика другая, см. её докстринг). */
+  onLogout?: () => void;
 }
 
 const DEFAULT_PUBLIC_LINKS: AppNavLink[] = [
@@ -104,8 +111,32 @@ export function AppNav({
   activeLink,
   user,
   links,
+  onLogout,
 }: AppNavProps) {
   const navLinks = links ?? (variant === "app" ? DEFAULT_APP_LINKS : DEFAULT_PUBLIC_LINKS);
+
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Клик вне меню и Escape закрывают его — тот же паттерн (document-level
+  // listener), что уже используется в ConfirmDialog.tsx для Escape.
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setMenuOpen(false);
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [menuOpen]);
 
   const navStyle: CSSProperties = {
     position: "sticky",
@@ -212,64 +243,141 @@ export function AppNav({
             </a>
           </div>
         ) : user ? (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              flexShrink: 0,
-            }}
-          >
-            <div
+          <div ref={menuRef} style={{ position: "relative", flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-label={`Меню аккаунта: ${user.name}`}
               style={{
-                width: 32,
-                height: 32,
-                borderRadius: "50%",
-                background: "var(--ds-blue)",
                 display: "flex",
                 alignItems: "center",
-                justifyContent: "center",
+                gap: 10,
+                background: "none",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+                font: "inherit",
+                color: "inherit",
               }}
-              aria-label={`Аккаунт: ${user.name}`}
             >
-              <span
-                style={{
-                  fontFamily: "var(--ds-font-heading)",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: "#FFFFFF",
-                }}
-              >
-                {user.name
-                  .split(" ")
-                  .slice(0, 2)
-                  .map((w) => w[0])
-                  .join("")
-                  .toUpperCase()}
-              </span>
-            </div>
-            <div>
               <div
                 style={{
-                  fontFamily: "var(--ds-font-body)",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: "var(--ds-text)",
-                  lineHeight: 1.2,
+                  width: 32,
+                  height: 32,
+                  borderRadius: "50%",
+                  background: "var(--ds-blue)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
                 }}
               >
-                {user.name}
+                <span
+                  style={{
+                    fontFamily: "var(--ds-font-heading)",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: "#FFFFFF",
+                  }}
+                >
+                  {user.name
+                    .split(" ")
+                    .slice(0, 2)
+                    .map((w) => w[0])
+                    .join("")
+                    .toUpperCase()}
+                </span>
               </div>
+              <div style={{ textAlign: "left" }}>
+                <div
+                  style={{
+                    fontFamily: "var(--ds-font-body)",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "var(--ds-text)",
+                    lineHeight: 1.2,
+                  }}
+                >
+                  {user.name}
+                </div>
+                <div
+                  style={{
+                    fontFamily: "var(--ds-font-body)",
+                    fontSize: 11,
+                    color: "var(--ds-text-muted)",
+                  }}
+                >
+                  {ROLE_LABEL[user.role] ?? user.role}
+                </div>
+              </div>
+            </button>
+
+            {menuOpen && (
               <div
+                role="menu"
+                aria-label={`Меню аккаунта: ${user.name}`}
                 style={{
-                  fontFamily: "var(--ds-font-body)",
-                  fontSize: 11,
-                  color: "var(--ds-text-muted)",
+                  position: "absolute",
+                  top: "calc(100% + 8px)",
+                  right: 0,
+                  minWidth: 180,
+                  background: "var(--ds-bg-white)",
+                  border: "1px solid var(--ds-border)",
+                  borderRadius: "var(--ds-r-md)",
+                  boxShadow: "0 8px 24px rgba(2, 6, 23, 0.16)",
+                  padding: 6,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 2,
                 }}
               >
-                {ROLE_LABEL[user.role] ?? user.role}
+                <a
+                  href="/ru/settings"
+                  role="menuitem"
+                  onClick={() => setMenuOpen(false)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    padding: "8px 12px",
+                    borderRadius: "var(--ds-r-sm)",
+                    fontFamily: "var(--ds-font-body)",
+                    fontSize: 13,
+                    fontWeight: 500,
+                    color: "var(--ds-text)",
+                    textDecoration: "none",
+                  }}
+                >
+                  Настройки
+                </a>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onLogout?.();
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    width: "100%",
+                    padding: "8px 12px",
+                    borderRadius: "var(--ds-r-sm)",
+                    fontFamily: "var(--ds-font-body)",
+                    fontSize: 13,
+                    fontWeight: 500,
+                    color: "var(--ds-text)",
+                    background: "none",
+                    border: "none",
+                    textAlign: "left",
+                    cursor: "pointer",
+                  }}
+                >
+                  Выйти
+                </button>
               </div>
-            </div>
+            )}
           </div>
         ) : null}
       </div>

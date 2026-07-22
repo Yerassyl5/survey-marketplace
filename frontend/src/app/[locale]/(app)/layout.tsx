@@ -51,9 +51,18 @@ function Spinner() {
 }
 
 export default function AppLayout({ children }: { children: ReactNode }) {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+
+  // Обычный выход (не путать со сменой пароля на /ru/settings — там refresh
+  // уже блеклистнут бэкендом, обычный logout() туда не годится, см. её
+  // докстринг). Здесь токен ещё живой — logout() спокойно шлёт
+  // POST /accounts/logout/ и блеклистит именно его.
+  async function handleLogout() {
+    await logout();
+    router.replace("/login");
+  }
   // "/requests/my-bids".startsWith("/requests/my") тоже true — префиксом не
   // разойтись, нужна граница сегмента (/requests/my либо /requests/my/...).
   const activeLink = pathname.startsWith("/feed")
@@ -90,7 +99,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "var(--ds-bg)" }}>
-      <AppNav variant="app" activeLink={activeLink} user={{ name: user.full_name, role: user.role }} links={NAV_LINKS[user.role]} />
+      <AppNav
+        variant="app"
+        activeLink={activeLink}
+        user={{ name: user.full_name, role: user.role }}
+        links={NAV_LINKS[user.role]}
+        onLogout={handleLogout}
+      />
       <main style={{ flex: 1 }}>{children}</main>
       <AppFooter compact />
     </div>

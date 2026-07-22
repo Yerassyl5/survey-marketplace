@@ -94,6 +94,24 @@ class ProfileViewTests(TestCase):
         self.assertIsNone(r.data["portfolio_description"])
         self.assertIsNone(r.data["verification_status"])
         self.assertIsNone(r.data["rejection_reason"])
+        self.assertFalse(r.data["has_license_scan"])
+        self.assertFalse(r.data["has_attestation_scan"])
+
+    def test_contractor_without_scans_reports_false(self):
+        r = self.client_contractor.get("/api/accounts/profile/")
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(r.data["has_license_scan"])
+        self.assertFalse(r.data["has_attestation_scan"])
+
+    def test_contractor_with_scan_reports_true(self):
+        self.contractor.contractor_profile.license_scan = SimpleUploadedFile(
+            "license.pdf", b"fake pdf content", content_type="application/pdf"
+        )
+        self.contractor.contractor_profile.save()
+        r = self.client_contractor.get("/api/accounts/profile/")
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.data["has_license_scan"])
+        self.assertFalse(r.data["has_attestation_scan"])
 
     def test_contractor_reads_profile_full_set(self):
         r = self.client_contractor.get("/api/accounts/profile/")
