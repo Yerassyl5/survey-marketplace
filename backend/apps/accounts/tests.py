@@ -3,11 +3,17 @@
 Профиль (этап 3): публичная карточка исполнителя GET /accounts/contractors/{id}/."""
 from __future__ import annotations
 
+from django.contrib.gis.geos import Point
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
 from rest_framework_simplejwt.tokens import RefreshToken
+
+from apps.marketplace.models import LocationType, Request, RequestStatus
+from apps.sites.models import Site
 
 from .models import ContractorProfile, Role, User, VerificationStatus
 
@@ -104,6 +110,13 @@ class ProfileViewTests(TestCase):
         self.assertIsNone(r.data["rejection_reason"])
         self.assertFalse(r.data["has_license_scan"])
         self.assertFalse(r.data["has_attestation_scan"])
+        self.assertEqual(r.data["completed_requests_count"], 0)
+
+    def test_profile_includes_date_joined_and_completed_count(self):
+        r = self.client_contractor.get("/api/accounts/profile/")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("date_joined", r.data)
+        self.assertEqual(r.data["completed_requests_count"], 0)
 
     def test_contractor_without_scans_reports_false(self):
         r = self.client_contractor.get("/api/accounts/profile/")
@@ -292,6 +305,38 @@ class ContractorPublicViewTests(TestCase):
         self.assertEqual(r.data["portfolio_description"], "10 лет геодезии в Алматы")
         # rejection_reason приватна — этой карточки не касается вообще, ключа нет.
         self.assertNotIn("rejection_reason", r.data)
+        self.assertIn("date_joined", r.data)
+        self.assertEqual(r.data["completed_requests_count"], 0)
+
+    def test_completed_requests_count_counts_only_accepted(self):
+        customer = make_customer(email="counts-customer@test.kz")
+        site = Site.objects.create(owner=customer, geometry=Point(76.9, 43.2))
+        Request.objects.create(
+            site=site, customer=customer, work_type="geodesy", description="x",
+            location_type=LocationType.CITY, status=RequestStatus.ACCEPTED,
+            assigned_contractor=self.contractor,
+        )
+        Request.objects.create(
+            site=site, customer=customer, work_type="geodesy", description="x",
+            location_type=LocationType.CITY, status=RequestStatus.AWARDED,
+            assigned_contractor=self.contractor,
+        )
+        r = self.client_e.get(f"/api/accounts/contractors/{self.contractor.id}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["completed_requests_count"], 1)
+
+    def test_completed_requests_count_is_single_query(self):
+        """Счётчик — один агрегатный запрос (get_completed_counts на список
+        из одного id), не N+1: карточка исполнителя всегда об одном
+        человеке, но фиксируем фактом, не предположением."""
+        with CaptureQueriesContext(connection) as ctx:
+            r = self.client_e.get(f"/api/accounts/contractors/{self.contractor.id}/")
+        self.assertEqual(r.status_code, 200)
+        completed_count_queries = [q for q in ctx.captured_queries if "marketplace_request" in q["sql"]]
+        self.assertEqual(
+            len(completed_count_queries), 1,
+            f"Ожидался ровно 1 запрос к marketplace_request, получено {len(completed_count_queries)}.",
+        )
 
     def test_customer_id_returns_404(self):
         r = self.client_e.get(f"/api/accounts/contractors/{self.customer.id}/")

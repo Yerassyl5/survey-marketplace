@@ -19,6 +19,7 @@ from apps.sites.models import Site
 
 from .events import BidConsidered, BidWithdrawn, ResultReturned
 from .models import Bid, BidStatus, LocationType, Request, RequestStatus, ResultEntryKind
+from .services import get_completed_counts
 
 
 def make_customer(email="customer@test.kz"):
@@ -1402,3 +1403,43 @@ class BidRatingAggregationTests(TestCase):
             f"Запросы растут с числом откликов: {queries_for_one} на 1, "
             f"{queries_for_four} на 4 — рейтинг делает запрос на каждый отклик.",
         )
+
+
+class CompletedCountsServiceTests(TestCase):
+    """get_completed_counts() — счётчик «выполнено» для карточки исполнителя
+    (accounts.ContractorPublicSerializer, задача «Профиль», пункт 3)."""
+
+    def setUp(self):
+        self.customer = make_customer()
+        self.contractor = make_contractor()
+        self.site = make_site(self.customer)
+
+    def _make_request(self, status: str, assigned_contractor=None):
+        return Request.objects.create(
+            site=self.site, customer=self.customer, work_type="geodesy", description="x",
+            location_type=LocationType.CITY, status=status, assigned_contractor=assigned_contractor,
+        )
+
+    def test_counts_only_accepted(self):
+        self._make_request(RequestStatus.ACCEPTED, self.contractor)
+        self._make_request(RequestStatus.AWARDED, self.contractor)
+        self._make_request(RequestStatus.RESULT_SUBMITTED, self.contractor)
+        counts = get_completed_counts([self.contractor.id])
+        self.assertEqual(counts[self.contractor.id], 1)
+
+    def test_zero_for_contractor_without_completed_requests(self):
+        self._make_request(RequestStatus.AWARDED, self.contractor)
+        counts = get_completed_counts([self.contractor.id])
+        self.assertEqual(counts.get(self.contractor.id, 0), 0)
+
+    def test_does_not_mix_contractors(self):
+        other = make_contractor(email="other-completed@test.kz")
+        self._make_request(RequestStatus.ACCEPTED, self.contractor)
+        self._make_request(RequestStatus.ACCEPTED, other)
+        self._make_request(RequestStatus.ACCEPTED, other)
+        counts = get_completed_counts([self.contractor.id, other.id])
+        self.assertEqual(counts[self.contractor.id], 1)
+        self.assertEqual(counts[other.id], 2)
+
+    def test_empty_list_returns_empty_dict(self):
+        self.assertEqual(get_completed_counts([]), {})

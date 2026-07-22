@@ -2,11 +2,17 @@
 
 /* ────────────────────────────────────────────────────────────────────────
    PortfolioSection.tsx — редактирование «О себе» (portfolio_description).
-   Вынесено из /ru/settings (этап 4): по итогам браузерной проверки решено,
-   что «О себе» — это часть ПУБЛИЧНОЙ карточки исполнителя (/ru/contractors/
-   [id], этап 5), не приватных настроек. Сама логика PATCH /accounts/profile/
-   не менялась — просто переехала в компонент, который смонтируется на
-   карточке владельца в следующем этапе.
+   Используется ТОЛЬКО на своей карточке исполнителя (/ru/contractors/[id],
+   этап 5) — чужую карточку этот компонент не касается вообще, там просто
+   текст без формы.
+
+   Режим просмотр/редактирование (правка по итогам браузерной проверки
+   этапа 5): savedText — последнее СОХРАНЁННОЕ значение, isEditing — правило
+   "нет сохранённого текста → сразу форма" (как было раньше), "есть текст →
+   читаемый блок + «Редактировать»". «Отмена» видна только когда есть что
+   отменять (savedText непустой) — если текста никогда не было, отменять
+   нечего, кнопка не показывается (тот же смысл, что и раньше — просто
+   форма, без переключателя).
    ──────────────────────────────────────────────────────────────────────── */
 
 import { useState } from "react";
@@ -46,12 +52,14 @@ export interface PortfolioSectionProps {
 }
 
 export function PortfolioSection({ profile, onSaved }: PortfolioSectionProps) {
-  const [text, setText] = useState(profile.portfolio_description ?? "");
+  const [savedText, setSavedText] = useState(profile.portfolio_description ?? "");
+  const [text, setText] = useState(savedText);
+  const [isEditing, setIsEditing] = useState(!savedText.trim());
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  const isDirty = text !== (profile.portfolio_description ?? "");
+  const isDirty = text !== savedText;
 
   async function handleSave() {
     setFormError(null);
@@ -60,6 +68,12 @@ export function PortfolioSection({ profile, onSaved }: PortfolioSectionProps) {
     try {
       const updated = await updateProfile({ portfolio_description: text });
       onSaved(updated);
+      const newSaved = updated.portfolio_description ?? "";
+      setSavedText(newSaved);
+      setText(newSaved);
+      // Если сохранили пустоту — остаёмся в форме (нечего показывать в
+      // читаемом блоке), тот же принцип, что и на первом входе без текста.
+      setIsEditing(!newSaved.trim());
       setSuccess(true);
     } catch (err) {
       setFormError(err instanceof ApiError ? err.message : "Не удалось сохранить.");
@@ -68,24 +82,60 @@ export function PortfolioSection({ profile, onSaved }: PortfolioSectionProps) {
     }
   }
 
+  function handleCancel() {
+    setText(savedText);
+    setFormError(null);
+    setIsEditing(false);
+  }
+
   return (
     <Section title="О себе">
       {formError && <Alert variant="error">{formError}</Alert>}
       {success && <Alert variant="info">Сохранено.</Alert>}
-      <FormField id="portfolio-description" label="О себе" hint="Видно заказчикам на вашей публичной карточке.">
-        <Textarea
-          rows={5}
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            setSuccess(false);
-          }}
-          placeholder="Например: опыт работы, специализация, реализованные проекты…"
-        />
-      </FormField>
-      <Button type="button" onClick={handleSave} disabled={!isDirty || isSaving} style={{ alignSelf: "flex-start" }}>
-        {isSaving ? "Сохранение…" : "Сохранить"}
-      </Button>
+
+      {isEditing ? (
+        <>
+          <FormField id="portfolio-description" label="О себе" hint="Видно заказчикам на вашей публичной карточке.">
+            <Textarea
+              rows={5}
+              value={text}
+              onChange={(e) => {
+                setText(e.target.value);
+                setSuccess(false);
+              }}
+              placeholder="Например: опыт работы, специализация, реализованные проекты…"
+            />
+          </FormField>
+          <div style={{ display: "flex", gap: 12 }}>
+            <Button type="button" onClick={handleSave} disabled={!isDirty || isSaving} style={{ alignSelf: "flex-start" }}>
+              {isSaving ? "Сохранение…" : "Сохранить"}
+            </Button>
+            {savedText.trim() && (
+              <Button type="button" variant="outline" onClick={handleCancel} disabled={isSaving} style={{ alignSelf: "flex-start" }}>
+                Отмена
+              </Button>
+            )}
+          </div>
+        </>
+      ) : (
+        <>
+          <p
+            style={{
+              fontFamily: "var(--ds-font-body)",
+              fontSize: 14,
+              color: "var(--ds-text)",
+              margin: 0,
+              whiteSpace: "pre-wrap",
+              overflowWrap: "anywhere",
+            }}
+          >
+            {savedText}
+          </p>
+          <Button type="button" variant="outline" onClick={() => setIsEditing(true)} style={{ alignSelf: "flex-start" }}>
+            Редактировать
+          </Button>
+        </>
+      )}
     </Section>
   );
 }

@@ -6,6 +6,8 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.settings import api_settings as simplejwt_settings
 
+from apps.marketplace.services import get_completed_counts
+
 from common.events import publish
 
 from .events import UserRegistered
@@ -204,6 +206,7 @@ class ProfileSerializer(serializers.ModelSerializer):
     rejection_reason = serializers.SerializerMethodField()
     has_license_scan = serializers.SerializerMethodField()
     has_attestation_scan = serializers.SerializerMethodField()
+    completed_requests_count = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -212,12 +215,14 @@ class ProfileSerializer(serializers.ModelSerializer):
             "iin", "bin", "organization_name", "position",
             "portfolio_description", "verification_status", "rejection_reason",
             "has_license_scan", "has_attestation_scan",
+            "date_joined", "completed_requests_count",
         ]
         read_only_fields = [
             "id", "email", "role", "person_type", "full_name",
             "iin", "bin", "organization_name", "position",
             "verification_status", "rejection_reason",
             "has_license_scan", "has_attestation_scan",
+            "date_joined", "completed_requests_count",
         ]
 
     def get_verification_status(self, user: User) -> str | None:
@@ -245,6 +250,16 @@ class ProfileSerializer(serializers.ModelSerializer):
         if user.role != Role.CONTRACTOR:
             return False
         return bool(user.contractor_profile.attestation_scan)
+
+    def get_completed_requests_count(self, user: User) -> int:
+        # Тот же агрегат, что и в ContractorPublicSerializer (карточка
+        # /ru/contractors/[id]) — своя карточка идёт через ProfileResponse,
+        # не через публичный сериализатор (см. разведку этапа 5, вопрос 3),
+        # поэтому поле нужно и здесь, иначе владелец видел бы пусто на
+        # собственной странице.
+        if user.role != Role.CONTRACTOR:
+            return 0
+        return get_completed_counts([user.id]).get(user.id, 0)
 
     def to_representation(self, instance):
         # portfolio_description физически на ContractorProfile, не на User —
@@ -294,13 +309,29 @@ class ContractorPublicSerializer(serializers.ModelSerializer):
     заказчику полезно знать, что исполнитель не прошёл проверку, до того как
     рассматривать его отклик. rejection_reason (сама причина отказа) при этом
     остаётся приватной — только в ProfileSerializer, самому исполнителю.
+
+    completed_requests_count — данные marketplace (Request.assigned_contractor
+    + status=accepted), не accounts. Зовём marketplace.services.
+    get_completed_counts() (публичная функция, см. её докстринг), НЕ
+    импортируем marketplace.models напрямую — тот же приём, что уже
+    reputation → marketplace для рейтинга/отзывов. Реверсивное ребро
+    accounts → marketplace — осознанное решение (дата регистрации и счётчик
+    оба про "карточку исполнителя", не про отзывы — держим в одном
+    эндпоинте), а не случайная связность.
     """
     verification_status = serializers.SerializerMethodField()
     portfolio_description = serializers.SerializerMethodField()
+    completed_requests_count = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ["id", "full_name", "verification_status", "portfolio_description"]
+        fields = [
+            "id", "full_name", "verification_status", "portfolio_description",
+            "date_joined", "completed_requests_count",
+        ]
+
+    def get_completed_requests_count(self, user: User) -> int:
+        return get_completed_counts([user.id]).get(user.id, 0)
 
     def get_verification_status(self, user: User) -> str | None:
         # getattr(..., None) — тот же приём, что уже в ContractorBriefSerializer
