@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from django import forms
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.utils.html import format_html
@@ -74,13 +75,18 @@ class ContractorProfileAdmin(admin.ModelAdmin):
         "user",
         "organization",
         "verification_status",
+        "rejection_reason",
         "verification_method",
         "license_expiry",
         "license_scan_link",
         "attestation_scan_link",
     ]
     list_filter = ["verification_status", "verification_method"]
-    list_editable = ["verification_status"]
+    # rejection_reason — настоящее поле модели (не @admin.display-метод):
+    # list_editable требует этого, computed-колонку (паттерн усечения, как
+    # у marketplace.RequestAdmin.contractor_note_column) сюда не поставить —
+    # редактируемость важнее компактности (см. задачу 8, обоснование пользователя).
+    list_editable = ["verification_status", "rejection_reason"]
     list_select_related = ["user"]
     search_fields = ["user__email", "user__full_name", "license_number", "attestation_number"]
     readonly_fields = ["user", "created_at", "updated_at"]
@@ -93,6 +99,17 @@ class ContractorProfileAdmin(admin.ModelAdmin):
         ("Верификация", {"fields": ["verification_status", "rejection_reason", "verification_method"]}),
         ("Служебное", {"fields": ["created_at", "updated_at"]}),
     ]
+
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        # Ужимаем виджет ТОЛЬКО для rejection_reason (по имени поля, не через
+        # formfield_overrides по типу TextField) — на модели есть ещё
+        # portfolio_description того же типа, formfield_overrides задел бы
+        # и его, если он когда-нибудь попадёт в эту админку. Без ужимания
+        # дефолтный <textarea rows=10 cols=40> разносил бы строку таблицы
+        # в list_editable.
+        if db_field.name == "rejection_reason":
+            kwargs["widget"] = forms.Textarea(attrs={"rows": 2, "cols": 40})
+        return super().formfield_for_dbfield(db_field, request, **kwargs)
 
     @admin.display(description="Организация")
     def organization(self, obj: ContractorProfile) -> str:

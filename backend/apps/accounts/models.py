@@ -19,6 +19,7 @@ class PersonType(models.TextChoices):
 
 
 class VerificationStatus(models.TextChoices):
+    NOT_SUBMITTED = "not_submitted", "Документы не загружены"
     PENDING = "pending", "На проверке"
     VERIFIED = "verified", "Верифицирован"
     REJECTED = "rejected", "Отклонён"
@@ -88,7 +89,7 @@ class ContractorProfile(models.Model):
     attestation_number = models.CharField(max_length=64, blank=True)
     license_expiry = models.DateField(null=True, blank=True)
     verification_status = models.CharField(
-        max_length=20, choices=VerificationStatus.choices, default=VerificationStatus.PENDING
+        max_length=20, choices=VerificationStatus.choices, default=VerificationStatus.NOT_SUBMITTED
     )
     # Причина отказа — заполняется модератором вручную при verification_status=rejected
     # (техдолг 1.2). Не накапливается: перезатирается при каждом решении/пересдаче,

@@ -58,6 +58,14 @@ class ContractorDocumentReuploadTests(TestCase):
         contractor.contractor_profile.refresh_from_db()
         self.assertEqual(contractor.contractor_profile.verification_status, VerificationStatus.PENDING)
 
+    def test_reupload_resets_not_submitted_to_pending(self):
+        contractor = make_contractor(verification_status=VerificationStatus.NOT_SUBMITTED)
+        self.client_e.force_authenticate(contractor)
+        r = self._patch_documents()
+        self.assertEqual(r.status_code, 200)
+        contractor.contractor_profile.refresh_from_db()
+        self.assertEqual(contractor.contractor_profile.verification_status, VerificationStatus.PENDING)
+
     def test_reupload_from_pending_stays_pending(self):
         contractor = make_contractor(verification_status=VerificationStatus.PENDING)
         self.client_e.force_authenticate(contractor)
@@ -249,6 +257,20 @@ class RegistrationPhoneValidationTests(TestCase):
             "phone": "+7 (701) 123-45-67", "iin": "123456789012",
         }, format="json")
         self.assertEqual(r.status_code, 201)
+
+
+class ContractorRegistrationVerificationDefaultTests(TestCase):
+    def test_register_contractor_defaults_to_not_submitted(self):
+        """Новый дефолт модели (задача 8): исполнитель регистрируется без
+        сканов — not_submitted, не pending (тот теперь означает «документы
+        поданы, ждут решения»)."""
+        r = APIClient().post("/api/accounts/register/contractor/", {
+            "email": "freshcontr@test.kz", "password": "password123",
+            "person_type": "individual", "full_name": "Тест Тестов",
+            "phone": "+77010000099", "iin": "123456789012",
+        }, format="json")
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.data["verification_status"], VerificationStatus.NOT_SUBMITTED)
 
 
 class ContractorPublicViewTests(TestCase):

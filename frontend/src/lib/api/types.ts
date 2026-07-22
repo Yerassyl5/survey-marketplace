@@ -6,7 +6,14 @@
 
 export type Role = "customer" | "contractor";
 export type PersonType = "individual" | "legal";
-export type VerificationStatus = "pending" | "verified" | "rejected";
+// "not_submitted" добавлен в backend (задача 8, ContractorProfile.
+// verification_status — новый дефолт вместо pending для только что
+// зарегистрированного исполнителя без сканов). Фронт сознательно НЕ
+// переписан под него в этой задаче — /ru/settings продолжает различать
+// «не загружено»/«на проверке» через has_license_scan/has_attestation_scan,
+// не через verification_status (см. docs/progress.md техдолг). Значение
+// добавлено в тип только затем, чтобы tsc не падал на новых данных с бэкенда.
+export type VerificationStatus = "not_submitted" | "pending" | "verified" | "rejected";
 
 export interface LoginPayload {
   email: string;
