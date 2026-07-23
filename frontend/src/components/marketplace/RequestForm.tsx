@@ -138,7 +138,15 @@ export function RequestForm() {
           }
           setFieldErrors(flat);
         }
-        setFormError(err.message);
+        // email_not_verified (этап 3 блока 1.11) — свой текст вместо сырого
+        // err.message: отсылает к баннеру наверху страницы (EmailVerification
+        // Banner в (app)/layout.tsx), а не дублирует там же кнопку «отправить
+        // повторно» второй раз.
+        setFormError(
+          err.code === "email_not_verified"
+            ? "Чтобы создать заявку, подтвердите почту — воспользуйтесь баннером вверху страницы."
+            : err.message,
+        );
       } else {
         setFormError("Не удалось создать заявку. Попробуйте ещё раз.");
       }
@@ -149,8 +157,6 @@ export function RequestForm() {
 
   return (
     <form onSubmit={handleSubmit} noValidate style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      {formError && <Alert variant="error">{formError}</Alert>}
-
       <Section title="Тип работ">
         <FormField id="request-work-type" label="Тип работ" required error={workTypeError}>
           <Select value={workType} onChange={(e) => setWorkType(e.target.value as WorkType)} hasError={Boolean(workTypeError)}>
@@ -203,6 +209,14 @@ export function RequestForm() {
       <Section title="Участок">
         <SiteFields value={site} onChange={setSite} errors={shownSiteErrors} />
       </Section>
+
+      {/* Ошибка отправки — у кнопки, не в начале формы: formError появляется
+         ТОЛЬКО после попытки отправки, когда взгляд и прокрутка пользователя
+         уже здесь, внизу. Наверху формы сообщение было гарантированно вне
+         области видимости на длинной форме — найдено живой проверкой
+         пользователем (этап 4 блока 1.11), общий механизм, не частный
+         случай email_not_verified. */}
+      {formError && <Alert variant="error">{formError}</Alert>}
 
       <Button type="submit" disabled={isSubmitting} size="lg" style={{ alignSelf: "flex-start", paddingLeft: 32, paddingRight: 32 }}>
         {isSubmitting ? "Создание…" : "Создать заявку"}

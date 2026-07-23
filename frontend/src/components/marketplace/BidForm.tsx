@@ -79,7 +79,14 @@ export function BidForm({ requestId, isVerified, onSuccess }: BidFormProps) {
           }
           setFieldErrors(flat);
         }
-        setFormError(err.message);
+        // email_not_verified (этап 3 блока 1.11) — тот же приём, что в
+        // RequestForm.tsx: отсылка к баннеру наверху страницы, не дубль
+        // кнопки «отправить повторно» внутри формы.
+        setFormError(
+          err.code === "email_not_verified"
+            ? "Чтобы откликнуться, подтвердите почту — воспользуйтесь баннером вверху страницы."
+            : err.message,
+        );
       } else {
         setFormError("Не удалось отправить отклик. Попробуйте ещё раз.");
       }
@@ -120,8 +127,6 @@ export function BidForm({ requestId, isVerified, onSuccess }: BidFormProps) {
       )}
 
       <form onSubmit={handleSubmit} noValidate style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        {formError && <Alert variant="error">{formError}</Alert>}
-
         <FormField id="bid-price" label="Цена, ₸" required error={priceError}>
           <Input
             type="number"
@@ -155,6 +160,13 @@ export function BidForm({ requestId, isVerified, onSuccess }: BidFormProps) {
             onChange={(e) => setComment(e.target.value)}
           />
         </FormField>
+
+        {/* Ошибка отправки — у кнопки, не в начале формы (тот же приём, что
+           в RequestForm.tsx): formError появляется только после попытки
+           отправки, взгляд пользователя уже здесь. На узких/невысоких
+           экранах верхнее размещение было так же вне видимости, как и на
+           длинной форме заявки — общий механизм, чиним в обеих формах. */}
+        {formError && <Alert variant="error">{formError}</Alert>}
 
         <Button type="submit" disabled={isSubmitting} style={{ marginTop: 4 }}>
           {isSubmitting ? "Отправка…" : "Отправить отклик"}
