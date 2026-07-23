@@ -27,13 +27,14 @@ import dataclasses
 
 from django.conf import settings
 
-from apps.accounts.events import ContractorVerificationDecided
-from apps.accounts.services import get_contact_info
+from apps.accounts.events import ContractorVerificationDecided, UserRegistered
+from apps.accounts.services import generate_email_verification_token, get_contact_info
 from apps.marketplace.events import BidConsidered, BidPlaced, RequestAwarded
 from apps.marketplace.services import count_bids, get_request_summary
 from common.events import DomainEvent, subscribe, subscribe_all
 
 from .models import AuditLog
+from .services import send_verification_email
 from .tasks import send_email_task
 
 _registered = False
@@ -175,6 +176,26 @@ def on_verification_decided(event: ContractorVerificationDecided) -> None:
     )
 
 
+def on_user_registered(event: UserRegistered) -> None:
+    """Письмо подтверждения почты при регистрации (PRODUCT_SPEC 1.11,
+    инвариант №10). publish(UserRegistered(...)) вызывается в ДВУХ местах
+    accounts/serializers.py (CustomerRegistrationSerializer.create и
+    ContractorRegistrationSerializer.create) — не дублирование одного и
+    того же вызова, а два РАЗНЫХ класса для разных ролей; для одной
+    регистрации срабатывает ровно один из них, письмо не задваивается
+    (проверено чтением кода при планировании этапа 3).
+
+    Токен строит accounts.services (владелец семантики подтверждения),
+    отправку — notifications.services.send_verification_email (тот же
+    источник истины про формат ссылки, что использует ResendVerificationView
+    при переотправке — не дублируем построение verify_url в двух местах)."""
+    contact = get_contact_info(event.user_id)
+    if contact is None:
+        return
+    token = generate_email_verification_token(event.user_id)
+    send_verification_email(contact.email, contact.full_name, token)
+
+
 def record_event(event: DomainEvent) -> None:
     """Журнал событий (architecture.md §5, PRODUCT_SPEC 1.9). Подписан на
     ВСЕ события через subscribe_all — принимает базовый DomainEvent, не
@@ -198,4 +219,5 @@ def register_subscribers() -> None:
     subscribe(RequestAwarded, on_request_awarded)
     subscribe(BidPlaced, on_bid_placed)
     subscribe(ContractorVerificationDecided, on_verification_decided)
+    subscribe(UserRegistered, on_user_registered)
     subscribe_all(record_event)

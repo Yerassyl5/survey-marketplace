@@ -23,9 +23,14 @@ from .services import get_completed_counts
 
 
 def make_customer(email="customer@test.kz"):
+    # is_email_verified=True — эти хелперы моделируют «обычного готового к
+    # работе пользователя» для тестов остального цикла заявки (не самого
+    # гейта почты, этап 3 блока 1.11); тесты гейта явно создают
+    # неподтверждённого пользователя отдельно, не через этот хелпер.
     return User.objects.create_user(
         email=email, password="pass", role=Role.CUSTOMER,
         person_type="individual", full_name="Заказчик Тест", phone="700",
+        is_email_verified=True,
     )
 
 
@@ -33,6 +38,7 @@ def make_contractor(email="contractor@test.kz", verified=False):
     user = User.objects.create_user(
         email=email, password="pass", role=Role.CONTRACTOR,
         person_type="individual", full_name="Исполнитель Тест", phone="701",
+        is_email_verified=True,
     )
     vs = VerificationStatus.VERIFIED if verified else VerificationStatus.PENDING
     ContractorProfile.objects.create(user=user, verification_status=vs)
