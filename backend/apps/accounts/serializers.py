@@ -187,6 +187,7 @@ class MeSerializer(serializers.ModelSerializer):
             "full_name",
             "phone",
             "verification_status",
+            "is_email_verified",
         ]
 
     def get_verification_status(self, user: User) -> str | None:

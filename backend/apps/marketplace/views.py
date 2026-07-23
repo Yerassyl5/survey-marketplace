@@ -8,6 +8,7 @@ from django.utils import timezone
 from rest_framework import serializers as rf_serializers
 from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
 from rest_framework import generics, permissions, status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -62,6 +63,30 @@ class ContractorCanBid(permissions.BasePermission):
         if getattr(settings, "REQUIRE_VERIFIED_TO_BID", False):
             profile = getattr(request.user, "contractor_profile", None)
             return bool(profile and profile.verification_status == VerificationStatus.VERIFIED)
+        return True
+
+
+class EmailVerifiedRequired(permissions.BasePermission):
+    """Мягкая блокировка (инвариант №10, architecture.md §4.7) — гейт на
+    is_email_verified, не проверка роли. Комбинируется с ролевыми
+    permission-классами в списке (DRF требует ВСЕ permission'ы — AND):
+    [IsCustomer(), EmailVerifiedRequired()] / [ContractorCanBid(),
+    EmailVerifiedRequired()] — порядок гарантирует, что этот гейт
+    проверяется только для уже прошедших ролевую проверку (DRF
+    останавливается на первом провалившемся permission), но проверка
+    is_authenticated здесь тоже есть — на случай, если класс когда-нибудь
+    переиспользуют в другом порядке.
+
+    raise с dict-detail, а не return False — DRF иначе завернул бы в
+    {"detail": "..."} без поля "code" (проверено фактом через curl при
+    планировании этапа 3): фронту (этап 4) нужен именно {"code": "email_
+    not_verified", ...}, чтобы показать баннер, а не общую ошибку."""
+    def has_permission(self, request, view) -> bool:
+        if request.user and request.user.is_authenticated and not request.user.is_email_verified:
+            raise PermissionDenied(detail={
+                "code": "email_not_verified",
+                "detail": "Подтвердите почту, чтобы выполнить это действие.",
+            })
         return True
 
 
@@ -124,7 +149,7 @@ class RequestListCreateView(generics.ListCreateAPIView):
 
     def get_permissions(self):
         if self.request.method == "POST":
-            return [IsCustomer()]
+            return [IsCustomer(), EmailVerifiedRequired()]
         return [permissions.IsAuthenticated()]
 
     def _is_customer_feed_scope(self) -> bool:
@@ -249,7 +274,7 @@ class BidListCreateView(generics.ListCreateAPIView):
     """
     def get_permissions(self):
         if self.request.method == "POST":
-            return [ContractorCanBid()]
+            return [ContractorCanBid(), EmailVerifiedRequired()]
         return [IsCustomer()]
 
     def get_serializer_class(self):
