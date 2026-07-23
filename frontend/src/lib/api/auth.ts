@@ -109,3 +109,20 @@ export async function uploadContractorDocuments(files: {
 export async function getContractorPublic(id: number): Promise<ContractorPublicResponse> {
   return apiFetch<ContractorPublicResponse>(`/accounts/contractors/${id}/`);
 }
+
+/** POST /accounts/verify-email/ — AllowAny на backend (токен сам доказывает
+ * личность), auth:false здесь тоже: страница /verify-email доступна и
+ * незалогиненному в этом браузере (этап 4 блока 1.11). */
+export async function verifyEmail(token: string): Promise<{ detail: string; is_email_verified: boolean }> {
+  return apiFetch("/accounts/verify-email/", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+    auth: false,
+  });
+}
+
+/** POST /accounts/resend-verification/ — IsAuthenticated, троттлинг 5/hour
+ * на backend (см. ResendVerificationView). */
+export async function resendVerification(): Promise<{ detail: string }> {
+  return apiFetch("/accounts/resend-verification/", { method: "POST" });
+}

@@ -70,6 +70,16 @@ function extractErrorMessage(data: unknown): string | null {
   return null;
 }
 
+/** {"code": "email_not_verified", "detail": "..."} — плоская форма, не
+ * обёрнутая (backend/apps/marketplace/views.py::EmailVerifiedRequired
+ * поднимает PermissionDenied(detail={"code": ..., "detail": ...}) именно
+ * ради этого — проверено фактом через curl при планировании этапа 3). */
+function extractErrorCode(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const val = (data as Record<string, unknown>).code;
+  return typeof val === "string" ? val : null;
+}
+
 export interface ApiFetchOptions extends RequestInit {
   /** Прикладывать Authorization-заголовок. По умолчанию true. */
   auth?: boolean;
@@ -133,7 +143,7 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
       }
     }
 
-    throw new ApiError(res.status, message, fieldErrors);
+    throw new ApiError(res.status, message, fieldErrors, extractErrorCode(data));
   }
 
   return data as T;

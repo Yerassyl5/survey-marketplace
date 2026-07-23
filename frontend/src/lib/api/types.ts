@@ -54,6 +54,10 @@ export interface MeResponse {
   full_name: string;
   phone: string;
   verification_status: VerificationStatus | null;
+  // Этап 3 блока 1.11 (backend accounts/serializers.py::MeSerializer) —
+  // добавлено сюда этапом 4; ProfileResponse/ContractorPublicResponse
+  // сверены с бэкендом в том же заходе, расхождений там не найдено.
+  is_email_verified: boolean;
 }
 
 /** GET/PATCH /accounts/profile/ — полный набор для /ru/settings, отдельно от
@@ -106,11 +110,23 @@ export type ApiFieldErrors = Record<string, string[]>;
 export class ApiError extends Error {
   status: number;
   fieldErrors: ApiFieldErrors | null;
+  /** Машиночитаемый код из тела ответа (например "email_not_verified",
+   * "token_expired", "invalid_token" — backend/apps/marketplace/views.py::
+   * EmailVerifiedRequired, accounts/views.py::VerifyEmailView, этапы 3-4
+   * блока 1.11). До этапа 4 поле не читалось нигде на фронте — backend
+   * уже отдавал различимые code, но вызывающий код не мог их увидеть. */
+  code: string | null;
 
-  constructor(status: number, message: string, fieldErrors: ApiFieldErrors | null = null) {
+  constructor(
+    status: number,
+    message: string,
+    fieldErrors: ApiFieldErrors | null = null,
+    code: string | null = null,
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.fieldErrors = fieldErrors;
+    this.code = code;
   }
 }
