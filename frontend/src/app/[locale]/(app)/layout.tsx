@@ -14,6 +14,7 @@ import type { ReactNode } from "react";
 import { AppNav } from "@/components/ui/AppNav";
 import type { AppNavLink } from "@/components/ui/AppNav";
 import { AppFooter } from "@/components/ui/AppFooter";
+import { EmailVerificationBanner } from "@/components/accounts/EmailVerificationBanner";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import type { MeResponse } from "@/lib/api/types";
@@ -113,6 +114,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         links={navLinksFor(user)}
         onLogout={handleLogout}
       />
+      {!user.is_email_verified && <EmailVerificationBanner />}
       <main style={{ flex: 1 }}>{children}</main>
       <AppFooter compact />
     </div>
