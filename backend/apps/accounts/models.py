@@ -73,6 +73,14 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(auto_now_add=True)
+    # Мягкая блокировка (инвариант №10, architecture.md §4.7) — is_active НЕ
+    # трогается нигде: вход разрешён сразу после регистрации, этот флаг
+    # блокирует только создание заявки/отклика (EmailVerifiedRequired,
+    # marketplace/views.py). default=False — для НОВЫХ регистраций;
+    # существующие на момент внедрения получают True грандфазеринг data-
+    # миграцией (0007_backfill_email_verified), иначе бы потеряли доступ
+    # задним числом.
+    is_email_verified = models.BooleanField(default=False)
 
     objects = UserManager()
 
