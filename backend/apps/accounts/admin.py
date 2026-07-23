@@ -5,8 +5,11 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.utils.html import format_html
 
+from common.events import publish
+
+from .events import ContractorVerificationDecided
 from .forms import UserChangeForm, UserCreationForm
-from .models import ContractorProfile, User
+from .models import ContractorProfile, User, VerificationStatus
 
 
 @admin.register(User)
@@ -99,6 +102,48 @@ class ContractorProfileAdmin(admin.ModelAdmin):
         ("Верификация", {"fields": ["verification_status", "rejection_reason", "verification_method"]}),
         ("Служебное", {"fields": ["created_at", "updated_at"]}),
     ]
+
+    def save_model(self, request, obj, form, change):
+        """Публикует ContractorVerificationDecided ТОЛЬКО при реальном
+        переходе verification_status на VERIFIED/REJECTED — сравнение со
+        значением из БД ДО сохранения, не form.changed_data: поле
+        редактируется двумя разными путями админки (полная форма страницы
+        И list_editable прямо в changelist), оба вызывают этот save_model,
+        а свежий запрос к БД работает одинаково надёжно в обоих путях, не
+        завязан на то, как Django строит форму для каждого из них.
+
+        Решение принимается ТОЛЬКО модератором вручную в Django Admin —
+        другого пути сейчас нет. Сигнал post_save на ContractorProfile
+        ловил бы шире, но выстреливал бы и на data-миграциях, и на любом
+        тесте, трогающем профиль, пряча логику там, где её никто не ищет.
+        Когда появится автосверка по elicense.kz (architecture.md §4.1,
+        «Отложено») — она публикует событие явно из своего кода, это
+        осознанное место расширения, а не забытая дыра.
+
+        Условие verification_status in (VERIFIED, REJECTED) отсекает
+        переход not_submitted -> pending (документы просто поданы, не
+        решение). old_status == new_status (например, модератор поправил
+        опечатку в rejection_reason уже отклонённой заявки, статус не
+        менял) — событие тоже не публикуется, письмо повторно не уходит."""
+        old_status = None
+        if change:
+            old_status = ContractorProfile.objects.filter(pk=obj.pk).values_list(
+                "verification_status", flat=True
+            ).first()
+        super().save_model(request, obj, form, change)
+        if (
+            change
+            and old_status is not None
+            and old_status != obj.verification_status
+            and obj.verification_status in (VerificationStatus.VERIFIED, VerificationStatus.REJECTED)
+        ):
+            publish(ContractorVerificationDecided(
+                contractor_id=obj.user_id,
+                decision=obj.verification_status,
+                rejection_reason=(
+                    obj.rejection_reason if obj.verification_status == VerificationStatus.REJECTED else ""
+                ),
+            ))
 
     def formfield_for_dbfield(self, db_field, request, **kwargs):
         # Ужимаем виджет ТОЛЬКО для rejection_reason (по имени поля, не через
