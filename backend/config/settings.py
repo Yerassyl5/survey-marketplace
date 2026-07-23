@@ -127,6 +127,12 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # Ставки по throttle_scope — сейчас только resend-verification (этап 3
+    # блока 1.11). Глобальных DEFAULT_THROTTLE_CLASSES нет — троттлинг только
+    # там, где явно включён на конкретной вьюхе (throttle_classes/throttle_scope).
+    "DEFAULT_THROTTLE_RATES": {
+        "resend-verification": "5/hour",
+    },
 }
 
 SIMPLE_JWT = {
@@ -148,6 +154,21 @@ SPECTACULAR_SETTINGS = {
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 CELERY_BROKER_URL = REDIS_URL
 CELERY_RESULT_BACKEND = REDIS_URL
+
+# Кэш — на Redis, не дефолтный LocMemCache. Без этого DRF-троттлинг
+# (resend-verification, этап 3 блока 1.11) считал бы попытки ОТДЕЛЬНО в
+# каждом процессе: в dev с одним runserver-процессом разницы не видно, но
+# под несколькими воркерами Gunicorn в проде "5 в час" тихо стало бы
+# "5 в час НА ВОРКЕР" — тот же класс проблемы, что EMAIL_TIMEOUT в этапе 0
+# (работает в dev, молча не работает как задумано в проде). Django 5.0
+# имеет встроенный Redis-backend, пакет redis уже в requirements.txt
+# (используется Celery) — новых зависимостей не требуется.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": REDIS_URL,
+    }
+}
 
 # Почта. Один и тот же EMAIL_BACKEND в dev и в проде (architecture.md §2) —
 # разница только в EMAIL_HOST/кредах из .env. Dev: EMAIL_HOST=mailpit
