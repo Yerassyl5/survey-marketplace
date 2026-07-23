@@ -149,6 +149,29 @@ REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 CELERY_BROKER_URL = REDIS_URL
 CELERY_RESULT_BACKEND = REDIS_URL
 
+# Почта. Один и тот же EMAIL_BACKEND в dev и в проде (architecture.md §2) —
+# разница только в EMAIL_HOST/кредах из .env. Dev: EMAIL_HOST=mailpit
+# (сервис в docker-compose.yml), письма никуда не уходят наружу.
+EMAIL_BACKEND = os.environ.get("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "mailpit")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "1025"))
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "0") == "1"
+# Без явного таймаута socket.create_connection() блокируется бесконечно при
+# недоступном хосте (проверено фактом при разведке retry-исключений для
+# send_email_task) — тогда ретраи Celery бессмысленны: первая попытка висит
+# вечно, а не падает с исключением, которое можно перехватить.
+EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "10"))
+# Дефолт безопасен для локалки (noreply@localhost) — реальный домен только
+# в .env.example/.env, чтобы пустая переменная в проде не увела письма
+# от адреса, который никто не настраивал, молча (решение пользователя).
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "noreply@localhost")
+
+# Адрес фронтенда для ссылок в письмах (подтверждение почты, сброс пароля —
+# появятся в бизнес-логике 1.11). Dev: localhost:3000, прод: реальный домен.
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+
 # MinIO (S3-совместимое хранилище). В БД — только ссылки на файлы (CLAUDE.md §«Инфраструктура»).
 STORAGES = {
     "default": {

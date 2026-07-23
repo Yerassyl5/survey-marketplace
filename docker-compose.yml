@@ -58,6 +58,18 @@ services:
       minio:
         condition: service_healthy
 
+  # Dev-почта: перехватывает всё, что шлёт backend/celery по SMTP, наружу
+  # ничего не уходит. Веб-интерфейс писем — localhost:8025 (architecture.md §2).
+  # Без volume (вариант A, решение пользователя) — письма живут в памяти
+  # контейнера, обнуляются на каждый restart/пересборку: это одноразовый
+  # dev-инструмент, не источник истины, копить историю тестовых писем не нужно.
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+
   backend:
     build: ./backend
     restart: unless-stopped
@@ -77,6 +89,8 @@ services:
         condition: service_started
       minio-init:
         condition: service_completed_successfully
+      mailpit:
+        condition: service_started
 
   celery-worker:
     build: ./backend
@@ -96,6 +110,8 @@ services:
         condition: service_started
       minio-init:
         condition: service_completed_successfully
+      mailpit:
+        condition: service_started
 
   celery-beat:
     build: ./backend
@@ -115,6 +131,8 @@ services:
         condition: service_started
       minio-init:
         condition: service_completed_successfully
+      mailpit:
+        condition: service_started
 
   frontend:
     build: ./frontend
