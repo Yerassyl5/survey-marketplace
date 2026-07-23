@@ -1,14 +1,17 @@
-"""Этап 1 блока 1.11: первый подписчик доменных событий + журнал."""
+"""Этапы 1-2 блока 1.11: подписчики доменных событий + журнал."""
 from __future__ import annotations
 
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.contrib.admin.sites import AdminSite
+from django.test import RequestFactory, TestCase
 
-from apps.accounts.models import Role, User
+from apps.accounts.admin import ContractorProfileAdmin
+from apps.accounts.events import ContractorVerificationDecided
+from apps.accounts.models import ContractorProfile, Role, User, VerificationStatus
 from apps.geo.models import City
-from apps.marketplace.events import BidConsidered
-from apps.marketplace.models import LocationType, Request
+from apps.marketplace.events import BidConsidered, BidPlaced, RequestAwarded
+from apps.marketplace.models import Bid, LocationType, Request
 from apps.sites.models import Site
 from common.events import publish
 
@@ -132,3 +135,134 @@ class AuditLogTests(TestCase):
         self.assertEqual(
             AuditLog.objects.filter(event_type="marketplace.BidConsidered").count(), 1
         )
+
+
+class RequestAwardedEmailTests(TestCase):
+    def setUp(self):
+        self.contractor = make_contractor()
+        self.customer = make_customer()
+        self.request_obj = make_request(self.customer)
+
+    @patch("apps.notifications.subscribers.send_email_task")
+    def test_publish_request_awarded_queues_email_to_winner(self, mock_task):
+        publish(RequestAwarded(request_id=self.request_obj.id, contractor_id=self.contractor.id))
+        mock_task.delay.assert_called_once()
+        _, kwargs = mock_task.delay.call_args
+        self.assertEqual(kwargs["to_email"], self.contractor.email)
+        self.assertEqual(kwargs["template_name"], "request_awarded")
+
+    @patch("apps.notifications.subscribers.send_email_task")
+    def test_request_awarded_context_has_no_customer_contact(self, mock_task):
+        """Правило модуля — почта не знает больше продукта: победитель не
+        видит телефон/email заказчика ни в одном сериализаторе, письмо тоже
+        не должно их содержать."""
+        publish(RequestAwarded(request_id=self.request_obj.id, contractor_id=self.contractor.id))
+        _, kwargs = mock_task.delay.call_args
+        context_values = " ".join(str(v) for v in kwargs["context"].values())
+        self.assertNotIn(self.customer.phone, context_values)
+        self.assertNotIn(self.customer.email, context_values)
+        self.assertEqual(
+            set(kwargs["context"].keys()),
+            {"contractor_name", "work_type_label", "location_label", "request_url"},
+        )
+
+
+class BidPlacedFirstResponseEmailTests(TestCase):
+    def setUp(self):
+        self.customer = make_customer()
+        self.request_obj = make_request(self.customer)
+        self.contractor1 = make_contractor(email="c1@test.kz")
+        self.contractor2 = make_contractor(email="c2@test.kz")
+
+    @patch("apps.notifications.subscribers.send_email_task")
+    def test_first_bid_queues_email_to_customer(self, mock_task):
+        Bid.objects.create(request=self.request_obj, contractor=self.contractor1)
+        publish(BidPlaced(
+            request_id=self.request_obj.id, bid_id=1, contractor_id=self.contractor1.id,
+        ))
+        mock_task.delay.assert_called_once()
+        _, kwargs = mock_task.delay.call_args
+        self.assertEqual(kwargs["to_email"], self.customer.email)
+        self.assertEqual(kwargs["template_name"], "bid_first_response")
+        self.assertEqual(kwargs["context"]["contractor_name"], self.contractor1.full_name)
+
+    @patch("apps.notifications.subscribers.send_email_task")
+    def test_second_bid_does_not_queue_email(self, mock_task):
+        """Письмо только на ПЕРВЫЙ отклик (PRODUCT_SPEC 1.11) — второй
+        отклик на ту же заявку не должен слать повторное «первый отклик»."""
+        Bid.objects.create(request=self.request_obj, contractor=self.contractor1)
+        Bid.objects.create(request=self.request_obj, contractor=self.contractor2)
+        publish(BidPlaced(
+            request_id=self.request_obj.id, bid_id=2, contractor_id=self.contractor2.id,
+        ))
+        mock_task.delay.assert_not_called()
+
+
+class VerificationDecidedEmailTests(TestCase):
+    def setUp(self):
+        self.contractor = make_contractor()
+        self.profile = ContractorProfile.objects.create(
+            user=self.contractor, verification_status=VerificationStatus.PENDING,
+        )
+
+    @patch("apps.notifications.subscribers.send_email_task")
+    def test_verified_decision_queues_email(self, mock_task):
+        publish(ContractorVerificationDecided(
+            contractor_id=self.contractor.id, decision=VerificationStatus.VERIFIED, rejection_reason="",
+        ))
+        mock_task.delay.assert_called_once()
+        _, kwargs = mock_task.delay.call_args
+        self.assertEqual(kwargs["context"]["decision"], VerificationStatus.VERIFIED)
+
+    @patch("apps.notifications.subscribers.send_email_task")
+    def test_rejected_decision_includes_reason(self, mock_task):
+        publish(ContractorVerificationDecided(
+            contractor_id=self.contractor.id, decision=VerificationStatus.REJECTED,
+            rejection_reason="Скан лицензии нечитаем",
+        ))
+        _, kwargs = mock_task.delay.call_args
+        self.assertEqual(kwargs["context"]["rejection_reason"], "Скан лицензии нечитаем")
+
+    def _make_admin(self):
+        return ContractorProfileAdmin(ContractorProfile, AdminSite())
+
+    def _fake_request(self):
+        return RequestFactory().get("/admin/")
+
+    @patch("apps.notifications.subscribers.send_email_task")
+    def test_admin_save_model_publishes_on_status_change(self, mock_task):
+        """publish() из ContractorProfileAdmin.save_model, не прямой вызов —
+        доказывает, что событие реально уходит из реального пути сохранения."""
+        admin_instance = self._make_admin()
+        self.profile.verification_status = VerificationStatus.VERIFIED
+        admin_instance.save_model(self._fake_request(), self.profile, form=None, change=True)
+        mock_task.delay.assert_called_once()
+        entry = AuditLog.objects.get(event_type="accounts.ContractorVerificationDecided")
+        self.assertEqual(entry.payload["decision"], VerificationStatus.VERIFIED)
+
+    @patch("apps.notifications.subscribers.send_email_task")
+    def test_admin_save_model_does_not_republish_on_unrelated_change(self, mock_task):
+        """Главный риск этапа: модератор сохраняет профиль, не меняя
+        verification_status (например, правит license_number) — письмо
+        повторно уходить не должно."""
+        admin_instance = self._make_admin()
+        self.profile.verification_status = VerificationStatus.VERIFIED
+        admin_instance.save_model(self._fake_request(), self.profile, form=None, change=True)
+        mock_task.reset_mock()
+
+        self.profile.license_number = "LIC-12345"
+        admin_instance.save_model(self._fake_request(), self.profile, form=None, change=True)
+        mock_task.delay.assert_not_called()
+        self.assertEqual(
+            AuditLog.objects.filter(event_type="accounts.ContractorVerificationDecided").count(), 1,
+        )
+
+    @patch("apps.notifications.subscribers.send_email_task")
+    def test_admin_save_model_does_not_publish_on_create(self, mock_task):
+        """change=False (создание нового профиля) — событие не публикуется,
+        независимо от значения verification_status на новом объекте."""
+        new_contractor = make_contractor(email="new-contractor@test.kz")
+        new_profile = ContractorProfile(user=new_contractor, verification_status=VerificationStatus.VERIFIED)
+        admin_instance = self._make_admin()
+        admin_instance.save_model(self._fake_request(), new_profile, form=None, change=False)
+        mock_task.delay.assert_not_called()

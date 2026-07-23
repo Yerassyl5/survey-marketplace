@@ -1,0 +1,7 @@
+{% extends "emails/_base.html" %}
+{% block body %}
+<p>Здравствуйте, {{ customer_name }}!</p>
+<p>На Вашу заявку «{{ work_type_label }}» ({{ location_label }}) пришёл первый отклик — от {{ contractor_name }}.</p>
+<p>Рассмотреть отклик можно здесь:</p>
+<p><a href="{{ request_url }}">{{ request_url }}</a></p>
+{% endblock %}

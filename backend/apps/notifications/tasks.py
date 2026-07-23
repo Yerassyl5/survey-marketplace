@@ -62,9 +62,16 @@ def send_email_task(
     добавлении нового письма (render_to_string кинет TemplateDoesNotExist,
     если забыть один из двух файлов — это НЕ SMTP-ошибка транспорта, не
     ретраится, падает сразу и заметно).
+
+    site_url добавляется в контекст здесь централизованно (не в каждом
+    вызывающем подписчике) — emails/_base.{txt,html} (этап 2 блока 1.11)
+    ссылается на {{ site_url }} в шапке/подписи, общей для всех писем;
+    так шаблон, унаследованный от базового, всегда получает эту переменную,
+    даже если конкретный подписчик о ней не думал.
     """
-    text_body = render_to_string(f"emails/{template_name}.txt", context)
-    html_body = render_to_string(f"emails/{template_name}.html", context)
+    full_context: dict[str, Any] = {"site_url": settings.FRONTEND_URL, **context}
+    text_body = render_to_string(f"emails/{template_name}.txt", full_context)
+    html_body = render_to_string(f"emails/{template_name}.html", full_context)
 
     message = EmailMultiAlternatives(
         subject=subject,

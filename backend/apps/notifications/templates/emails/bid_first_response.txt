@@ -1,0 +1,9 @@
+{% extends "emails/_base.txt" %}
+{% block body %}
+Здравствуйте, {{ customer_name }}!
+
+На Вашу заявку «{{ work_type_label }}» ({{ location_label }}) пришёл первый отклик — от {{ contractor_name }}.
+
+Рассмотреть отклик можно здесь:
+{{ request_url }}
+{% endblock %}

@@ -1,0 +1,7 @@
+{% extends "emails/_base.html" %}
+{% block body %}
+<p>Здравствуйте, {{ contractor_name }}!</p>
+<p>Поздравляем — заказчик выбрал Вас исполнителем по заявке «{{ work_type_label }}» ({{ location_label }}).</p>
+<p>Заказчик свяжется с Вами напрямую. Когда работа будет выполнена, загрузите результат в личном кабинете:</p>
+<p><a href="{{ request_url }}">{{ request_url }}</a></p>
+{% endblock %}

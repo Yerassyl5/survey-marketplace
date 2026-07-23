@@ -1,9 +1,8 @@
-ПроГео
-
+{% extends "emails/_base.txt" %}
+{% block body %}
 Здравствуйте, {{ contractor_name }}!
 
 Заказчик рассматривает Ваш отклик по заявке «{{ work_type_label }}» ({{ location_label }}).
 
 Мы сообщим Вам, если заказчик выберет Вас исполнителем.
-
-— Команда ПроГео
+{% endblock %}

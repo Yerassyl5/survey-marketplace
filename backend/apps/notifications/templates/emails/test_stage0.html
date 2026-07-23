@@ -1,9 +1,6 @@
-<!doctype html>
-<html>
-  <body style="font-family: sans-serif;">
-    <h1>ПроГео — проверка почтовой инфраструктуры</h1>
-    <p>Это тестовое письмо, {{ user_name }}.</p>
-    <p>Если ты его видишь — SMTP-транспорт (<code>send_email_task</code> → Mailpit) работает.</p>
-    <p>Это заглушка этапа 0 блока 1.11, не письмо реального сценария.</p>
-  </body>
-</html>
+{% extends "emails/_base.html" %}
+{% block body %}
+<p>Это тестовое письмо, {{ user_name }}.</p>
+<p>Если ты его видишь — SMTP-транспорт (<code>send_email_task</code> → Mailpit) работает.</p>
+<p>Это заглушка этапа 0 блока 1.11, не письмо реального сценария.</p>
+{% endblock %}

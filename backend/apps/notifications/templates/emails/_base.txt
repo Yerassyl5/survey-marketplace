@@ -1,0 +1,4 @@
+ПроГео
+{% block body %}{% endblock %}
+— Команда ПроГео
+{{ site_url }}
