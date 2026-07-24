@@ -10,7 +10,7 @@ from django.core import signing
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
-from django.test import TestCase, override_settings
+from django.test import Client, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
@@ -976,3 +976,42 @@ class ResendVerificationThrottleTests(TestCase):
             r = self.client.post("/api/accounts/resend-verification/")
             self.assertEqual(r.status_code, 200, f"attempt {attempt + 1} should succeed")
         mock_send.assert_not_called()
+
+
+class UserAdminLastLoginColumnTests(TestCase):
+    """Колонка «Последний вход» в UserAdmin (get_queryset + get_last_logins,
+    notifications/services.py) — bulk-запрос на всю страницу, не N+1:
+    число SQL-запросов на смену не должно расти с числом строк в списке."""
+
+    def setUp(self):
+        self.moderator = User.objects.create_user(
+            email="changelist-moderator@test.kz", password="pass", role=Role.CUSTOMER,
+            person_type="individual", full_name="Модератор Списка", phone="700",
+            is_staff=True, is_superuser=True,
+        )
+        self.client_admin = Client()
+        self.client_admin.force_login(self.moderator)
+
+    def _make_users_with_logins(self, n, prefix):
+        for i in range(n):
+            u = make_customer(f"{prefix}{i}@test.kz")
+            publish(UserLoggedIn(user_id=u.id))
+
+    def test_query_count_does_not_grow_with_number_of_users(self):
+        self._make_users_with_logins(3, "changelist-few-")
+        with CaptureQueriesContext(connection) as ctx_few:
+            r = self.client_admin.get("/admin/accounts/user/")
+        self.assertEqual(r.status_code, 200)
+        few_count = len(ctx_few.captured_queries)
+
+        self._make_users_with_logins(10, "changelist-many-")
+        with CaptureQueriesContext(connection) as ctx_many:
+            r2 = self.client_admin.get("/admin/accounts/user/")
+        self.assertEqual(r2.status_code, 200)
+        many_count = len(ctx_many.captured_queries)
+
+        self.assertEqual(
+            few_count, many_count,
+            f"Число запросов выросло с числом пользователей на странице: "
+            f"{few_count} -> {many_count} — похоже на N+1.",
+        )

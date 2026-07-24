@@ -1,15 +1,34 @@
 from __future__ import annotations
 
+import contextvars
+from urllib.parse import urlencode
+
 from django import forms
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
+from django.urls import reverse
 from django.utils.html import format_html
 
+from apps.notifications.services import get_last_logins
 from common.events import publish
 
-from .events import ContractorVerificationDecided
+from .events import ContractorVerificationDecided, EmailVerificationChangedByAdmin
 from .forms import UserChangeForm, UserCreationForm
 from .models import ContractorProfile, User, VerificationStatus
+
+# Словарь «последний вход» на всю страницу списка — считается один раз в
+# UserAdmin.get_queryset(), читается в last_login_display() на каждую
+# строку. НЕ атрибут self._last_logins на инстансе UserAdmin — тот
+# создаётся один раз и переиспользуется между запросами (Django admin
+# ModelAdmin — singleton), а runserver/Gunicorn (architecture.md §9,
+# несколько threads/workers) обслуживают запросы конкурентно: два
+# оператора, открывшие список одновременно, затирали бы словарь друг
+# друга посреди рендера строк. ContextVar изолирован по потоку/задаче
+# автоматически — тот же примитив, которым Django/DRF пользуются для
+# per-request состояния.
+_last_logins_ctx: contextvars.ContextVar[dict] = contextvars.ContextVar(
+    "user_admin_last_logins", default={}
+)
 
 
 @admin.register(User)
@@ -24,18 +43,31 @@ class UserAdmin(DjangoUserAdmin):
     list_display = [
         "email",
         "full_name",
-        "phone",
         "role",
-        "person_type",
         "organization_name_display",
         "is_active",
+        "is_email_verified",
         "date_joined",
+        "last_login_display",
     ]
-    list_filter = ["role", "person_type", "is_active"]
+    # phone/person_type убраны из списка (решение пользователя): колонок
+    # стало много, не влезают; organization_name_display уже показывает,
+    # юрлицо это или физлицо (дублирование с person_type); телефон нужен
+    # только в карточке. person_type ОСТАЁТСЯ в list_filter — фильтровать
+    # по типу лица по-прежнему полезно, туда список колонок не влияет.
+    list_filter = ["role", "person_type", "is_active", "is_email_verified"]
+    # is_email_verified — тот же паттерн, что verification_status/
+    # rejection_reason у ContractorProfileAdmin: статус-флаг, который
+    # поддержке нужно быстро переключить прямо из списка (человек
+    # застрял — письмо реально не дошло, гейт блокирует и заявку, и
+    # отклик), не только со страницы одного пользователя. Список
+    # неподтверждённых через list_filter — практическая ценность:
+    # это застрявшие, кто не может ни создать заявку, ни откликнуться.
+    list_editable = ["is_email_verified"]
     search_fields = ["email", "full_name", "iin", "bin", "organization_name"]
     ordering = ["-date_joined"]
     filter_horizontal = ["groups", "user_permissions"]
-    readonly_fields = ["date_joined"]
+    readonly_fields = ["date_joined", "login_history_link"]
 
     fieldsets = (
         (None, {"fields": ("email", "password")}),
@@ -54,8 +86,16 @@ class UserAdmin(DjangoUserAdmin):
                 )
             },
         ),
-        ("Права доступа", {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
-        ("Важные даты", {"fields": ("last_login", "date_joined")}),
+        (
+            "Права доступа",
+            {"fields": ("is_active", "is_email_verified", "is_staff", "is_superuser", "groups", "user_permissions")},
+        ),
+        # last_login убран из отображения (было в этом фильдсете) —
+        # UPDATE_LAST_LOGIN=False (settings.py), поле у ЛЮБОГО обычного
+        # пользователя всегда пусто, оператор видел бы «сломанное» на
+        # вид поле. Реальная история входов — событие UserLoggedIn в
+        # AuditLog (accounts/events.py), сюда — ссылка на неё.
+        ("Важные даты", {"fields": ("login_history_link", "date_joined")}),
     )
     add_fieldsets = (
         (
@@ -67,9 +107,61 @@ class UserAdmin(DjangoUserAdmin):
         ),
     )
 
+    def get_queryset(self, request):
+        # Один bulk-запрос на id + один агрегатный на AuditLog — не по
+        # одному на пользователя. Считаем на ВСЕХ User, не только на
+        # отфильтрованных/попавших на страницу ChangeList (тот queryset
+        # собирается позже, после этого метода) — при нынешнем масштабе
+        # (десятки-сотни пользователей) разница не имеет значения, а
+        # точный расчёт «только для видимой страницы» потребовал бы
+        # либо своей ChangeList, либо аннотации Subquery поверх
+        # notifications.AuditLog прямо в этом queryset — то и другое
+        # либо усложняет, либо нарушает инвариант №12 (см. events.py/
+        # docs/progress.md, блок «Сброс пароля»).
+        qs = super().get_queryset(request)
+        user_ids = list(User.objects.values_list("pk", flat=True))
+        _last_logins_ctx.set(get_last_logins(user_ids))
+        return qs
+
+    @admin.display(description="Последний вход")
+    def last_login_display(self, obj: User) -> str:
+        last_login = _last_logins_ctx.get().get(obj.pk)
+        if last_login is None:
+            return "—"
+        return last_login.strftime("%d.%m.%Y %H:%M")
+
     @admin.display(description="Организация")
     def organization_name_display(self, obj: User) -> str:
         return obj.organization_name or "—"
+
+    @admin.display(description="История входов")
+    def login_history_link(self, obj: User) -> str:
+        if not obj.pk:
+            return "—"
+        url = reverse("admin:notifications_auditlog_changelist")
+        query = urlencode({"event_type": "accounts.UserLoggedIn", "q": str(obj.pk)})
+        return format_html('<a href="{}?{}" target="_blank">Открыть в журнале →</a>', url, query)
+
+    def save_model(self, request, obj, form, change):
+        """Публикует EmailVerificationChangedByAdmin ТОЛЬКО при реальном
+        изменении is_email_verified — сравнение со значением из БД ДО
+        сохранения, не form.changed_data, тем же способом и по той же
+        причине, что ContractorProfileAdmin.save_model ниже (поле
+        редактируется и полной формой, и list_editable, оба пути должны
+        сравниваться одинаково надёжно). Не публикует на создании
+        пользователя (change=False) и при сохранении без изменения флага
+        (например, правка телефона того же пользователя)."""
+        old_verified = None
+        if change:
+            old_verified = User.objects.filter(pk=obj.pk).values_list(
+                "is_email_verified", flat=True
+            ).first()
+        super().save_model(request, obj, form, change)
+        if change and old_verified is not None and old_verified != obj.is_email_verified:
+            publish(EmailVerificationChangedByAdmin(
+                user_id=obj.id, is_email_verified=obj.is_email_verified,
+                changed_by_user_id=request.user.id,
+            ))
 
 
 @admin.register(ContractorProfile)
@@ -143,6 +235,7 @@ class ContractorProfileAdmin(admin.ModelAdmin):
                 rejection_reason=(
                     obj.rejection_reason if obj.verification_status == VerificationStatus.REJECTED else ""
                 ),
+                changed_by_user_id=request.user.id,
             ))
 
     def formfield_for_dbfield(self, db_field, request, **kwargs):

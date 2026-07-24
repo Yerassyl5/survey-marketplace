@@ -10,8 +10,12 @@ ResendVerificationView.
 """
 from __future__ import annotations
 
-from django.conf import settings
+from datetime import datetime
 
+from django.conf import settings
+from django.db.models import Max
+
+from .models import AuditLog
 from .tasks import send_email_task
 
 
@@ -37,3 +41,25 @@ def send_password_reset_email(to_email: str, full_name: str, token: str) -> None
         template_name="password_reset",
         context={"full_name": full_name, "reset_url": reset_url},
     )
+
+
+def get_last_logins(user_ids: list[int]) -> dict[int, datetime]:
+    """Момент последнего входа (событие accounts.UserLoggedIn) для списка
+    пользователей — один агрегатный запрос (GROUP BY по ключу JSONField,
+    Max(created_at)), не по одному на пользователя. Тот же принцип, что
+    marketplace.services.get_completed_counts/reputation.services.
+    get_ratings_for_contractors — публичная граница модуля, вызывающая
+    сторона (accounts/admin.py, колонка «Последний вход») получает
+    только эту функцию, не импортирует AuditLog напрямую (инвариант №12).
+
+    Отсутствующие в результате id — пользователь без единого входа (ещё
+    не логинился) — вызывающая сторона сама решает, что показать (у нас —
+    прочерк, не пустая ячейка)."""
+    if not user_ids:
+        return {}
+    rows = (
+        AuditLog.objects.filter(event_type="accounts.UserLoggedIn", payload__user_id__in=user_ids)
+        .values("payload__user_id")
+        .annotate(last_login=Max("created_at"))
+    )
+    return {int(row["payload__user_id"]): row["last_login"] for row in rows}
