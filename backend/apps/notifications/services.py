@@ -23,3 +23,17 @@ def send_verification_email(to_email: str, full_name: str, token: str) -> None:
         template_name="email_verification",
         context={"full_name": full_name, "verify_url": verify_url},
     )
+
+
+def send_password_reset_email(to_email: str, full_name: str, token: str) -> None:
+    """Вызывается вне доменного события, тем же способом, что
+    send_verification_email — RequestPasswordResetView не публикует
+    отдельное событие ради отправки письма (PasswordResetRequested,
+    accounts/events.py, публикуется отдельно, только для журнала)."""
+    reset_url = f"{settings.FRONTEND_URL}/ru/reset-password?token={token}"
+    send_email_task.delay(
+        to_email=to_email,
+        subject="Сброс пароля — ПроГео",
+        template_name="password_reset",
+        context={"full_name": full_name, "reset_url": reset_url},
+    )

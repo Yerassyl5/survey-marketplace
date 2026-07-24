@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-from django.contrib.auth.models import update_last_login
 from rest_framework import serializers
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from rest_framework_simplejwt.settings import api_settings as simplejwt_settings
 
 from apps.marketplace.services import get_completed_counts
 
 from common.events import publish
 
-from .events import UserRegistered
+from .events import UserLoggedIn, UserRegistered
 from .models import ContractorProfile, PersonType, Role, User, VerificationStatus
 from .validators import validate_phone_format
 
@@ -164,11 +162,9 @@ class LoginSerializer(TokenObtainPairSerializer):
 
         self.user = user
         refresh = self.get_token(self.user)
+        publish(UserLoggedIn(user_id=self.user.id))
 
         data = {"refresh": str(refresh), "access": str(refresh.access_token)}
-        if simplejwt_settings.UPDATE_LAST_LOGIN:
-            update_last_login(None, self.user)
-
         data["user_id"] = self.user.id
         data["role"] = self.user.role
         return data
@@ -298,6 +294,19 @@ class ChangePasswordSerializer(serializers.Serializer):
         if not user.check_password(value):
             raise serializers.ValidationError("Неверный текущий пароль.")
         return value
+
+
+class RequestPasswordResetSerializer(serializers.Serializer):
+    """Только формат email проверяется здесь — существование пользователя
+    сознательно НЕ проверяется валидатором (иначе 400 на несуществующий
+    email выдал бы факт его отсутствия раньше, чем дело дойдёт до вьюхи с
+    единым ответом)."""
+    email = serializers.EmailField()
+
+
+class ConfirmPasswordResetSerializer(serializers.Serializer):
+    token = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True, min_length=8)
 
 
 class ContractorPublicSerializer(serializers.ModelSerializer):

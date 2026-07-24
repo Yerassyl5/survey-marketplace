@@ -13,7 +13,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.core import signing
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 
 from .models import User
 
@@ -87,3 +89,111 @@ def verify_email_verification_token(token: str) -> int:
         return int(payload["user_id"])
     except (KeyError, TypeError, ValueError):
         raise EmailVerificationTokenInvalid
+
+
+# --- Сброс пароля ---
+#
+# В отличие от EMAIL_VERIFICATION_* выше, здесь сознательно используется
+# django.contrib.auth.tokens.PasswordResetTokenGenerator, а не голый
+# signing.dumps: тот генератор строит хэш из user.password И user.last_login
+# (_make_hash_value) — для подтверждения почты это было дефектом (см.
+# выше), для сброса пароля это ровно нужное свойство: смена пароля сама
+# инвалидирует все не использованные ссылки сброса, без отдельной модели
+# токенов с ручной чисткой просроченных записей.
+#
+# PasswordResetTokenGenerator.check_token() не различает «истёк» и
+# «подделан» — оба случая возвращают False. Различение нужно по UX-причине
+# (TTL всего 1 час, случай «открыл письмо через два часа» частый, и ответ
+# должен объяснять, что произошло, а не пугать «ссылка недействительна»,
+# решение пользователя). Вместо обращения к приватным методам генератора
+# (нестабильная опора между версиями Django) весь токен ОБОРАЧИВАЕТСЯ в
+# тот же signing.dumps/loads, что и EMAIL_VERIFICATION-токен выше:
+# внешний конверт даёт различимые исключения (SignatureExpired/
+# BadSignature) через полностью публичный API, внутренний Django-токен
+# остаётся только ради самоинвалидации при смене пароля/last_login —
+# оба слоя проверяются независимо.
+PASSWORD_RESET_SALT = "accounts.password-reset"
+# 1 час — самый чувствительный токен в системе (даёт смену пароля, то
+# есть фактический захват аккаунта), короче TTL подтверждения почты
+# (3 суток), у которого такого риска нет (решение пользователя).
+PASSWORD_RESET_TTL = 60 * 60
+
+_password_reset_token_generator = PasswordResetTokenGenerator()
+
+
+class PasswordResetTokenExpired(Exception):
+    """Внешний конверт (signing) устарел — TTL 1 час истёк."""
+
+
+class PasswordResetTokenInvalid(Exception):
+    """Конверт структурно испорчен/подделан/под чужим salt, либо в payload
+    нет такого пользователя. Не путать с PasswordResetTokenAlreadyUsed
+    ниже — там конверт настоящий (подписан нашим SECRET_KEY, иначе внешняя
+    подпись не сошлась бы вообще), просто внутренний Django-токен больше
+    не совпадает."""
+
+
+class PasswordResetTokenAlreadyUsed(Exception):
+    """Внешний конверт цел и свеж (не истёк, не подделан), но внутренний
+    PasswordResetTokenGenerator.check_token() не совпал — пароль (или
+    last_login) сменился с момента выдачи ссылки.
+
+    Разведено с PasswordResetTokenInvalid намеренно (не декоративно):
+    фронт (этап 3) должен объяснять человеку разные ситуации по-разному —
+    «ссылка недействительна/подделана» пугает того, кто просто открыл
+    письмо через два часа ПОСЛЕ того, как уже сменил пароль другим путём
+    (или кликнул по старой ссылке после реального использования).
+
+    Формулировка вправе быть КОНКРЕТНОЙ («пароль уже был изменён»), не
+    обобщённой («что-то изменилось») — проверено фактом, не
+    предположением: api_settings.UPDATE_LAST_LOGIN == False в этом
+    проекте (SIMPLE_JWT в settings.py не переопределяет дефолт), и
+    единственный вызов update_last_login() в LoginSerializer.validate()
+    стоит за этим же флагом, то есть не вызывается никогда. Ни одного
+    другого места в backend/apps/, которое трогало бы last_login, нет
+    (grep). Значит last_login для обычного пользователя API не меняется
+    в принципе — единственная практическая причина несовпадения здесь
+    это смена пароля, «вошли с другого устройства» для этой аудитории не
+    сценарий. (Теоретическое исключение — вход сотрудника в Django Admin
+    через сессию, которая шлёт user_logged_in — не относится к аудитории
+    сброса пароля через публичный сайт, в пользовательский текст не
+    выносится.)"""
+
+
+def generate_password_reset_token(user: User) -> str:
+    inner_token = _password_reset_token_generator.make_token(user)
+    return signing.dumps({"user_id": user.id, "token": inner_token}, salt=PASSWORD_RESET_SALT)
+
+
+def verify_password_reset_token(token: str) -> User:
+    """Возвращает User при успехе. Raises PasswordResetTokenExpired/
+    PasswordResetTokenInvalid/PasswordResetTokenAlreadyUsed — три
+    различимых исключения (не два, как у verify_email_verification_token)
+    ради разных текстов на фронте (этап 3): «истёк» vs «подделан» vs
+    «пароль уже сменили»."""
+    try:
+        payload = signing.loads(token, salt=PASSWORD_RESET_SALT, max_age=PASSWORD_RESET_TTL)
+    except signing.SignatureExpired:
+        raise PasswordResetTokenExpired
+    except signing.BadSignature:
+        raise PasswordResetTokenInvalid
+    try:
+        user_id = int(payload["user_id"])
+        inner_token = str(payload["token"])
+    except (KeyError, TypeError, ValueError):
+        raise PasswordResetTokenInvalid
+    user = User.objects.filter(pk=user_id).first()
+    if user is None:
+        raise PasswordResetTokenInvalid
+    if not _password_reset_token_generator.check_token(user, inner_token):
+        raise PasswordResetTokenAlreadyUsed
+    return user
+
+
+def blacklist_all_refresh_tokens(user: User) -> None:
+    """Вызывается и сменой пароля залогиненным (ChangePasswordView), и
+    сбросом пароля по ссылке (этап 2) — второе место использования
+    оправдывает вынос из вьюхи: все устройства требуют повторного входа
+    после любой смены пароля, независимо от пути."""
+    for token in OutstandingToken.objects.filter(user=user):
+        BlacklistedToken.objects.get_or_create(token=token)

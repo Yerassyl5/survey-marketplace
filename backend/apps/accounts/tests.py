@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from django.contrib.gis.geos import Point
 from django.core import signing
+from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
 from django.test import TestCase, override_settings
@@ -19,8 +20,21 @@ from apps.geo.models import City
 from apps.marketplace.models import LocationType, Request, RequestStatus
 from apps.sites.models import Site
 
+from apps.notifications.models import AuditLog
+from common.events import publish
+
+from .events import UserLoggedIn
 from .models import ContractorProfile, Role, User, VerificationStatus
-from .services import EMAIL_VERIFICATION_SALT, generate_email_verification_token
+from .services import (
+    EMAIL_VERIFICATION_SALT,
+    PASSWORD_RESET_SALT,
+    PasswordResetTokenAlreadyUsed,
+    PasswordResetTokenExpired,
+    PasswordResetTokenInvalid,
+    generate_email_verification_token,
+    generate_password_reset_token,
+    verify_password_reset_token,
+)
 
 # Троттлинг resend-verification (settings.py: DEFAULT_THROTTLE_RATES) считает
 # по CACHES["default"] — в проде это Redis (этап 3 блока 1.11), но тесты не
@@ -256,6 +270,319 @@ class ChangePasswordTests(TestCase):
             "/api/accounts/token/refresh/", {"refresh": str(old_refresh)}, format="json",
         )
         self.assertEqual(refresh_attempt.status_code, 401)
+
+    def test_change_password_publishes_password_changed_event(self):
+        r = self.client_e.post(
+            "/api/accounts/change-password/",
+            {"current_password": "pass", "new_password": "newpass123"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 204)
+        entry = AuditLog.objects.get(event_type="accounts.PasswordChanged")
+        self.assertEqual(entry.payload, {"user_id": self.user.id})
+
+
+class UserLoggedInEventTests(TestCase):
+    """История входов — событие UserLoggedIn, не last_login (UPDATE_LAST_LOGIN
+    остаётся False, см. settings.py). Только POST /login/, НЕ token/refresh/."""
+
+    def setUp(self):
+        self.user = make_customer("login-event@test.kz")
+
+    def test_successful_login_publishes_user_logged_in(self):
+        r = APIClient().post(
+            "/api/accounts/login/", {"email": self.user.email, "password": "pass"}, format="json",
+        )
+        self.assertEqual(r.status_code, 200)
+        entry = AuditLog.objects.get(event_type="accounts.UserLoggedIn")
+        self.assertEqual(entry.payload, {"user_id": self.user.id})
+
+    def test_failed_login_does_not_publish_event(self):
+        r = APIClient().post(
+            "/api/accounts/login/", {"email": self.user.email, "password": "wrong"}, format="json",
+        )
+        self.assertEqual(r.status_code, 401)
+        self.assertFalse(AuditLog.objects.filter(event_type="accounts.UserLoggedIn").exists())
+
+    def test_token_refresh_does_not_publish_another_login_event(self):
+        """token/refresh/ — молчаливое продление сессии (до 4 раз в час на
+        открытую вкладку при ACCESS_TOKEN_LIFETIME=15 минут), не действие
+        человека — не должно считаться «входом»."""
+        login = APIClient().post(
+            "/api/accounts/login/", {"email": self.user.email, "password": "pass"}, format="json",
+        )
+        self.assertEqual(AuditLog.objects.filter(event_type="accounts.UserLoggedIn").count(), 1)
+
+        APIClient().post(
+            "/api/accounts/token/refresh/", {"refresh": login.data["refresh"]}, format="json",
+        )
+        self.assertEqual(AuditLog.objects.filter(event_type="accounts.UserLoggedIn").count(), 1)
+
+
+class PasswordResetTokenTests(TestCase):
+    """Сброс пароля, этап 1 — сервисный слой (генерация/проверка токена),
+    без эндпоинтов (те — этап 2). Токен — PasswordResetTokenGenerator,
+    обёрнутый в signing.dumps/loads (см. docstring в services.py), не
+    signing.dumps в чистом виде, как у email-verification."""
+
+    def setUp(self):
+        self.user = make_customer("reset-token@test.kz")
+
+    def test_generate_and_verify_roundtrip(self):
+        token = generate_password_reset_token(self.user)
+        verified_user = verify_password_reset_token(token)
+        self.assertEqual(verified_user.pk, self.user.pk)
+
+    def test_password_change_invalidates_reset_token(self):
+        """Ключевое свойство, ради которого выбран PasswordResetTokenGenerator,
+        а не signing.dumps: смена пароля сама инвалидирует неиспользованную
+        ссылку сброса — signing.dumps этого не даёт вообще (проверено
+        фактом, не предположением). PasswordResetTokenAlreadyUsed, не
+        PasswordResetTokenInvalid — конверт цел и свеж, просто пароль уже
+        сменился (см. docstring исключения в services.py)."""
+        token = generate_password_reset_token(self.user)
+        self.user.set_password("BrandNewPassword123!")
+        self.user.save()
+        with self.assertRaises(PasswordResetTokenAlreadyUsed):
+            verify_password_reset_token(token)
+
+    def test_expired_envelope_rejected(self):
+        token = generate_password_reset_token(self.user)
+        with patch("apps.accounts.services.PASSWORD_RESET_TTL", -1):
+            with self.assertRaises(PasswordResetTokenExpired):
+                verify_password_reset_token(token)
+
+    def test_garbage_token_rejected(self):
+        with self.assertRaises(PasswordResetTokenInvalid):
+            verify_password_reset_token("not-a-real-token")
+
+    def test_token_signed_with_foreign_salt_rejected(self):
+        """Конверт структурно валиден (подписан тем же SECRET_KEY), но под
+        другим salt — не должен пройти проверку под salt сброса пароля
+        (домены подписи разведены сознательно, как и у email-verification)."""
+        foreign_token = signing.dumps(
+            {"user_id": self.user.id, "token": "irrelevant"}, salt="some-other-purpose",
+        )
+        with self.assertRaises(PasswordResetTokenInvalid):
+            verify_password_reset_token(foreign_token)
+
+    def test_nonexistent_user_id_rejected(self):
+        token = signing.dumps(
+            {"user_id": 999999999, "token": "irrelevant"}, salt=PASSWORD_RESET_SALT,
+        )
+        with self.assertRaises(PasswordResetTokenInvalid):
+            verify_password_reset_token(token)
+
+    def test_tampered_inner_token_rejected(self):
+        """Внешний конверт цел и свеж (не истёк, подписан нашим SECRET_KEY —
+        иначе signing.loads уже отверг бы его как BadSignature), но
+        внутренний Django-токен подменён — check_token() должен отвергнуть
+        его независимо от валидности внешней подписи. Доказывает, что
+        двухслойность реально двухслойна, не декоративна: одной верной
+        внешней подписи недостаточно. PasswordResetTokenAlreadyUsed —
+        механически неотличимо от «пароль реально сменился» (см.
+        test_password_change_invalidates_reset_token выше), это и
+        ожидаемо: оба случая означают ровно одно и то же для стороннего
+        наблюдателя — «внутренний токен не совпадает с текущим
+        состоянием пользователя»."""
+        token = signing.dumps(
+            {"user_id": self.user.id, "token": "garbage-inner-token"}, salt=PASSWORD_RESET_SALT,
+        )
+        with self.assertRaises(PasswordResetTokenAlreadyUsed):
+            verify_password_reset_token(token)
+
+
+@override_settings(CACHES=_LOCMEM_CACHES)
+class RequestPasswordResetViewTests(TestCase):
+    """Этап 2 — эндпоинт запроса сброса. AllowAny, единый ответ.
+
+    Троттлинг здесь по IP (не по user.pk, как resend-verification) — все
+    вызовы Django test client используют один и тот же фиктивный IP,
+    значит счётчик ОБЩИЙ для всех тестов в одном прогоне. cache.clear()
+    в setUp обязателен, иначе тесты этого и соседних классов
+    (PasswordResetRequestThrottleTests) взаимно засоряют друг друга
+    случайными 429 (найдено фактом при первом прогоне — 2 упавших теста)."""
+
+    def setUp(self):
+        cache.clear()
+        self.user = make_customer("reset-request@test.kz")
+
+    @patch("apps.accounts.views.send_password_reset_email")
+    def test_existing_email_returns_200_and_queues_email(self, mock_send):
+        r = APIClient().post(
+            "/api/accounts/request-password-reset/", {"email": self.user.email}, format="json",
+        )
+        self.assertEqual(r.status_code, 200)
+        mock_send.assert_called_once()
+        args, _ = mock_send.call_args
+        self.assertEqual(args[0], self.user.email)
+
+    @patch("apps.accounts.views.send_password_reset_email")
+    def test_nonexistent_email_returns_identical_response_without_sending(self, mock_send):
+        """Единообразие — ключевое свойство эндпоинта: перебором ответа
+        нельзя отличить существующий email от несуществующего."""
+        existing = APIClient().post(
+            "/api/accounts/request-password-reset/", {"email": self.user.email}, format="json",
+        )
+        nonexistent = APIClient().post(
+            "/api/accounts/request-password-reset/", {"email": "nobody@test.kz"}, format="json",
+        )
+        self.assertEqual(existing.status_code, nonexistent.status_code)
+        self.assertEqual(existing.data, nonexistent.data)
+        mock_send.assert_called_once()  # только для существующего email
+
+    @patch("apps.accounts.views.send_password_reset_email")
+    def test_nonexistent_email_does_not_grow_audit_log(self, mock_send):
+        """Иначе журнал стал бы тем самым каналом перебора адресов,
+        который закрывает единый ответ выше."""
+        APIClient().post(
+            "/api/accounts/request-password-reset/", {"email": "nobody2@test.kz"}, format="json",
+        )
+        self.assertFalse(
+            AuditLog.objects.filter(event_type="accounts.PasswordResetRequested").exists()
+        )
+
+    @patch("apps.accounts.views.send_password_reset_email")
+    def test_existing_email_publishes_password_reset_requested(self, mock_send):
+        APIClient().post(
+            "/api/accounts/request-password-reset/", {"email": self.user.email}, format="json",
+        )
+        entry = AuditLog.objects.get(event_type="accounts.PasswordResetRequested")
+        self.assertEqual(entry.payload, {"user_id": self.user.id})
+
+    def test_invalid_email_format_rejected(self):
+        r = APIClient().post(
+            "/api/accounts/request-password-reset/", {"email": "not-an-email"}, format="json",
+        )
+        self.assertEqual(r.status_code, 400)
+
+
+@override_settings(CACHES=_LOCMEM_CACHES)
+class ConfirmPasswordResetViewTests(TestCase):
+    """Этап 2 — эндпоинт подтверждения сброса, три различимых кода ошибки.
+
+    Троттлинг по IP — тот же нюанс с общим счётчиком, что у
+    RequestPasswordResetViewTests выше, cache.clear() обязателен."""
+
+    def setUp(self):
+        cache.clear()
+        self.user = make_customer("reset-confirm@test.kz")
+
+    def test_success_changes_password_blacklists_tokens_and_publishes_event(self):
+        old_refresh = RefreshToken.for_user(self.user)
+        token = generate_password_reset_token(self.user)
+
+        r = APIClient().post(
+            "/api/accounts/reset-password-confirm/",
+            {"token": token, "new_password": "BrandNewPassword123!"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 200)
+
+        login = APIClient().post(
+            "/api/accounts/login/",
+            {"email": self.user.email, "password": "BrandNewPassword123!"},
+            format="json",
+        )
+        self.assertEqual(login.status_code, 200)
+
+        refresh_attempt = APIClient().post(
+            "/api/accounts/token/refresh/", {"refresh": str(old_refresh)}, format="json",
+        )
+        self.assertEqual(refresh_attempt.status_code, 401)
+
+        entry = AuditLog.objects.get(event_type="accounts.PasswordResetCompleted")
+        self.assertEqual(entry.payload, {"user_id": self.user.id})
+
+    def test_expired_token_returns_token_expired_code(self):
+        token = generate_password_reset_token(self.user)
+        with patch("apps.accounts.services.PASSWORD_RESET_TTL", -1):
+            r = APIClient().post(
+                "/api/accounts/reset-password-confirm/",
+                {"token": token, "new_password": "AnotherPassword123!"},
+                format="json",
+            )
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.data["code"], "token_expired")
+
+    def test_already_used_token_returns_token_already_used_code(self):
+        """Пароль сменился МЕЖДУ выдачей ссылки и переходом по ней (другим
+        путём/повторным кликом) — фронт покажет «пароль уже изменён», не
+        «недействительна»."""
+        token = generate_password_reset_token(self.user)
+        self.user.set_password("SomeOtherPassword123!")
+        self.user.save()
+        r = APIClient().post(
+            "/api/accounts/reset-password-confirm/",
+            {"token": token, "new_password": "YetAnotherPassword123!"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.data["code"], "token_already_used")
+
+    def test_garbage_token_returns_invalid_token_code(self):
+        r = APIClient().post(
+            "/api/accounts/reset-password-confirm/",
+            {"token": "not-a-real-token", "new_password": "SomePassword123!"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.data["code"], "invalid_token")
+
+    def test_too_short_new_password_rejected(self):
+        token = generate_password_reset_token(self.user)
+        r = APIClient().post(
+            "/api/accounts/reset-password-confirm/",
+            {"token": token, "new_password": "short"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 400)
+
+
+@override_settings(CACHES=_LOCMEM_CACHES)
+class PasswordResetRequestThrottleTests(TestCase):
+    def setUp(self):
+        cache.clear()
+
+    @patch("apps.accounts.views.send_password_reset_email")
+    def test_sixth_request_within_hour_is_throttled(self, mock_send):
+        make_customer("throttle-target@test.kz")
+        for attempt in range(5):
+            r = APIClient().post(
+                "/api/accounts/request-password-reset/",
+                {"email": "throttle-target@test.kz"}, format="json",
+            )
+            self.assertEqual(r.status_code, 200, f"attempt {attempt + 1} should succeed")
+        r = APIClient().post(
+            "/api/accounts/request-password-reset/",
+            {"email": "throttle-target@test.kz"}, format="json",
+        )
+        self.assertEqual(r.status_code, 429)
+
+
+@override_settings(CACHES=_LOCMEM_CACHES)
+class PasswordResetConfirmThrottleTests(TestCase):
+    def setUp(self):
+        cache.clear()
+
+    def test_eleventh_confirm_attempt_within_hour_is_throttled(self):
+        """Ставка confirm (10/hour) выше, чем request (5/hour) — не про
+        перебор email, а страховка от долбления по попыткам ввода нового
+        пароля; garbage-токен достаточен, троттлинг срабатывает до логики
+        вьюхи (check_throttles), содержимое запроса не важно."""
+        for attempt in range(10):
+            r = APIClient().post(
+                "/api/accounts/reset-password-confirm/",
+                {"token": "garbage", "new_password": "SomePassword123!"},
+                format="json",
+            )
+            self.assertEqual(r.status_code, 400, f"attempt {attempt + 1} should be a normal invalid-token 400")
+        r = APIClient().post(
+            "/api/accounts/reset-password-confirm/",
+            {"token": "garbage", "new_password": "SomePassword123!"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 429)
 
 
 class RegistrationPhoneValidationTests(TestCase):
@@ -521,6 +848,30 @@ class EmailVerificationGateTests(TestCase):
         self.assertEqual(r.status_code, 200)
         customer.refresh_from_db()
         self.assertTrue(customer.is_email_verified)
+
+    def test_first_verification_publishes_email_verified_event(self):
+        customer = make_unverified_customer("first-verify-event@test.kz")
+        token = generate_email_verification_token(customer.id)
+        r = APIClient().post("/api/accounts/verify-email/", {"token": token}, format="json")
+        self.assertEqual(r.status_code, 200)
+        entry = AuditLog.objects.get(event_type="accounts.EmailVerified")
+        self.assertEqual(entry.payload, {"user_id": customer.id})
+
+    def test_reverify_already_verified_does_not_republish_event(self):
+        """Идемпотентное повторное подтверждение — событие не пишется
+        второй раз (различение self-verify/admin-override теряло бы
+        смысл, если бы журнал засорялся повторами одного и того же
+        подтверждения)."""
+        customer = User.objects.create_user(
+            email="reverify-no-duplicate@test.kz", password="pass", role=Role.CUSTOMER,
+            person_type="individual", full_name="Уже Подтверждён", phone="700",
+            is_email_verified=True,
+        )
+        token = generate_email_verification_token(customer.id)
+        APIClient().post("/api/accounts/verify-email/", {"token": token}, format="json")
+        self.assertFalse(
+            AuditLog.objects.filter(event_type="accounts.EmailVerified", payload__user_id=customer.id).exists()
+        )
 
     def test_missing_token_field_returns_400(self):
         r = APIClient().post("/api/accounts/verify-email/", {}, format="json")

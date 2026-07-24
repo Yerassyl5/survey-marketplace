@@ -127,11 +127,21 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-    # Ставки по throttle_scope — сейчас только resend-verification (этап 3
-    # блока 1.11). Глобальных DEFAULT_THROTTLE_CLASSES нет — троттлинг только
-    # там, где явно включён на конкретной вьюхе (throttle_classes/throttle_scope).
+    # Ставки по throttle_scope. Глобальных DEFAULT_THROTTLE_CLASSES нет —
+    # троттлинг только там, где явно включён на конкретной вьюхе
+    # (throttle_classes/throttle_scope).
     "DEFAULT_THROTTLE_RATES": {
         "resend-verification": "5/hour",
+        # AllowAny, ключ — IP (ScopedRateThrottle берёт IP для
+        # неаутентифицированных запросов). Общий IP офиса/NAT может задеть
+        # нескольких пользователей одним лимитом — известный компромисс,
+        # тот же класс риска, что уже принят в проекте в других местах
+        # (сброс пароля, блок «Сброс пароля», этап 2).
+        "password-reset-request": "5/hour",
+        # Выше, чем запрос — не про перебор email (токен не угадывается,
+        # это HMAC), а страховка от долбления по количеству попыток ввода
+        # нового пароля (опечатки в реальном использовании — норма).
+        "password-reset-confirm": "10/hour",
     },
 }
 
@@ -141,6 +151,15 @@ SIMPLE_JWT = {
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
     "AUTH_HEADER_TYPES": ("Bearer",),
+    # Явно False, не дефолт библиотеки — пин намеренного решения, не
+    # забытая настройка. django.contrib.auth.tokens.PasswordResetTokenGenerator
+    # (accounts/services.py, сброс пароля) хэширует user.last_login —
+    # если этот флаг когда-нибудь включат, любой вход будет преждевременно
+    # инвалидировать неиспользованную ссылку сброса пароля (тот же класс
+    # дефекта, из-за которого этот генератор отвергнут для подтверждения
+    # почты). Историю входов ведём иначе — событие UserLoggedIn
+    # (accounts/events.py) + журнал AuditLog, не last_login.
+    "UPDATE_LAST_LOGIN": False,
 }
 
 SPECTACULAR_SETTINGS = {

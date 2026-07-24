@@ -3,6 +3,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 
 from .views import (
     ChangePasswordView,
+    ConfirmPasswordResetView,
     ContractorDocumentUploadView,
     ContractorPublicView,
     LoginView,
@@ -11,6 +12,7 @@ from .views import (
     ProfileView,
     RegisterContractorView,
     RegisterCustomerView,
+    RequestPasswordResetView,
     ResendVerificationView,
     VerifyEmailView,
 )
@@ -30,4 +32,6 @@ urlpatterns = [
     path("contractors/<int:pk>/", ContractorPublicView.as_view(), name="contractor-public"),
     path("verify-email/", VerifyEmailView.as_view(), name="verify-email"),
     path("resend-verification/", ResendVerificationView.as_view(), name="resend-verification"),
+    path("request-password-reset/", RequestPasswordResetView.as_view(), name="request-password-reset"),
+    path("reset-password-confirm/", ConfirmPasswordResetView.as_view(), name="reset-password-confirm"),
 ]

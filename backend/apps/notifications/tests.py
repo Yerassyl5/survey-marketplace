@@ -7,7 +7,12 @@ from django.contrib.admin.sites import AdminSite
 from django.test import RequestFactory, TestCase
 
 from apps.accounts.admin import ContractorProfileAdmin
-from apps.accounts.events import ContractorVerificationDecided
+from apps.accounts.events import (
+    ContractorVerificationDecided,
+    PasswordChanged,
+    PasswordResetCompleted,
+    PasswordResetRequested,
+)
 from apps.accounts.models import ContractorProfile, Role, User, VerificationStatus
 from apps.geo.models import City
 from apps.marketplace.events import BidConsidered, BidPlaced, RequestAwarded
@@ -135,6 +140,33 @@ class AuditLogTests(TestCase):
         self.assertEqual(
             AuditLog.objects.filter(event_type="marketplace.BidConsidered").count(), 1
         )
+
+
+class PasswordResetAndChangeAuditTests(TestCase):
+    """Сброс пароля, этап 1 — payload новых событий должен содержать
+    СТРОГО user_id, ничего чувствительного (ни токена, ни пароля/хэша) —
+    AuditLog пишет dataclasses.asdict(event) целиком в JSONField, читаемый
+    в админке. Сами эндпоинты (публикующие PasswordResetRequested/
+    Completed) — этап 2; здесь события уже определены и проверяется
+    только их прохождение через общий journal-путь (subscribe_all)."""
+
+    def setUp(self):
+        self.user = make_customer()
+
+    def test_password_changed_event_has_only_user_id_payload(self):
+        publish(PasswordChanged(user_id=self.user.id))
+        entry = AuditLog.objects.get(event_type="accounts.PasswordChanged")
+        self.assertEqual(entry.payload, {"user_id": self.user.id})
+
+    def test_password_reset_requested_event_has_only_user_id_payload(self):
+        publish(PasswordResetRequested(user_id=self.user.id))
+        entry = AuditLog.objects.get(event_type="accounts.PasswordResetRequested")
+        self.assertEqual(entry.payload, {"user_id": self.user.id})
+
+    def test_password_reset_completed_event_has_only_user_id_payload(self):
+        publish(PasswordResetCompleted(user_id=self.user.id))
+        entry = AuditLog.objects.get(event_type="accounts.PasswordResetCompleted")
+        self.assertEqual(entry.payload, {"user_id": self.user.id})
 
 
 class RequestAwardedEmailTests(TestCase):
