@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
 from django.test import RequestFactory, TestCase
+from django.utils import timezone
 
 from apps.accounts.admin import ContractorProfileAdmin, UserAdmin
 from apps.accounts.events import (
@@ -105,6 +106,24 @@ class AuditLogTests(TestCase):
         entry = AuditLog.objects.get(event_type="marketplace.BidConsidered")
         self.assertEqual(entry.payload["request_id"], self.request_obj.id)
         self.assertEqual(entry.payload["contractor_id"], self.contractor.id)
+
+    @patch("apps.notifications.subscribers.send_email_task")
+    def test_str_shows_local_timezone_not_raw_utc(self, mock_task):
+        """Тот же класс бага, что в UserAdmin.last_login_display (найден
+        живой проверкой) — __str__ форматирует created_at вручную через
+        f-string, в обход стандартного перевода в settings.TIME_ZONE."""
+        self.assertNotEqual(
+            timezone.get_current_timezone_name(), "UTC",
+            "TIME_ZONE в settings — UTC, этот тест не может доказать разницу.",
+        )
+        publish(BidConsidered(
+            request_id=self.request_obj.id, bid_id=1, contractor_id=self.contractor.id,
+        ))
+        entry = AuditLog.objects.get(event_type="marketplace.BidConsidered")
+        expected = f"{entry.event_type} @ {timezone.localtime(entry.created_at):%Y-%m-%d %H:%M:%S}"
+        raw_utc = f"{entry.event_type} @ {entry.created_at:%Y-%m-%d %H:%M:%S}"
+        self.assertEqual(str(entry), expected)
+        self.assertNotEqual(str(entry), raw_utc)
 
     def test_audit_log_covers_any_event_type_not_only_bid_considered(self):
         """Журнал подписан через subscribe_all — проверяем на ДРУГОМ типе
@@ -294,6 +313,34 @@ class EmailVerificationAdminAuditTests(TestCase):
 
         self.assertEqual(admin_instance.last_login_display(no_login_user), "—")
         self.assertNotEqual(admin_instance.last_login_display(logged_in_user), "—")
+
+    def test_last_login_column_shows_local_timezone_not_raw_utc(self):
+        """Регрессия конкретного найденного бага: колонка должна совпадать
+        с тем, что реально показывает журнал AuditLog для ТОГО ЖЕ события
+        (created_at там рендерится штатным полем DateTimeField, который
+        сам переводит в settings.TIME_ZONE) — до фикса расхождение было
+        ровно на 5 часов (Asia/Almaty = UTC+5), потому что last_login_display
+        форматировал сырой UTC вручную через strftime в обход перевода."""
+        from apps.accounts.events import UserLoggedIn
+
+        self.assertNotEqual(
+            timezone.get_current_timezone_name(), "UTC",
+            "TIME_ZONE в settings — UTC, этот тест не может доказать разницу "
+            "(искать баг тайм-зоны здесь бессмысленно на такой машине).",
+        )
+
+        user = make_customer("tz-regression-check@test.kz")
+        publish(UserLoggedIn(user_id=user.id))
+        entry = AuditLog.objects.get(event_type="accounts.UserLoggedIn", payload__user_id=user.id)
+
+        admin_instance = self._make_admin()
+        admin_instance.get_queryset(self._fake_request())
+        displayed = admin_instance.last_login_display(user)
+
+        expected_local = timezone.localtime(entry.created_at).strftime("%d.%m.%Y %H:%M")
+        raw_utc = entry.created_at.strftime("%d.%m.%Y %H:%M")
+        self.assertEqual(displayed, expected_local)
+        self.assertNotEqual(displayed, raw_utc)
 
 
 class RequestAwardedEmailTests(TestCase):

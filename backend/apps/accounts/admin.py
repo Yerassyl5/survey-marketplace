@@ -7,6 +7,7 @@ from django import forms
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.html import format_html
 
 from apps.notifications.services import get_last_logins
@@ -128,7 +129,14 @@ class UserAdmin(DjangoUserAdmin):
         last_login = _last_logins_ctx.get().get(obj.pk)
         if last_login is None:
             return "—"
-        return last_login.strftime("%d.%m.%Y %H:%M")
+        # last_login хранится в UTC (get_last_logins читает AuditLog.
+        # created_at, USE_TZ=True) — timezone.localtime() переводит в
+        # settings.TIME_ZONE (Asia/Almaty) перед strftime. Без этого шага
+        # колонка показывала бы сырой UTC, разойдясь на 5 часов с той же
+        # записью в журнале AuditLog (там created_at рендерится штатным
+        # полем DateTimeField в readonly_fields, который эту конвертацию
+        # делает сам) — найдено живой проверкой, не по коду.
+        return timezone.localtime(last_login).strftime("%d.%m.%Y %H:%M")
 
     @admin.display(description="Организация")
     def organization_name_display(self, obj: User) -> str:

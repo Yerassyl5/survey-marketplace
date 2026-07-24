@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 
 class AuditLog(models.Model):
@@ -29,4 +30,12 @@ class AuditLog(models.Model):
         ordering = ["-created_at"]
 
     def __str__(self) -> str:
-        return f"{self.event_type} @ {self.created_at:%Y-%m-%d %H:%M:%S}"
+        # created_at хранится в UTC (USE_TZ=True) — timezone.localtime()
+        # переводит в settings.TIME_ZONE (Asia/Almaty) перед форматированием.
+        # Без этого шага strftime/f-string печатают сырой UTC — та же
+        # находка, что и в UserAdmin.last_login_display (admin.py, блок
+        # «Сброс пароля»); readonly_fields-колонка created_at в AuditLogAdmin
+        # эту конвертацию делает автоматически (стандартный рендер поля
+        # DateTimeField в Django Admin), а __str__ — нет, потому что это
+        # ручное форматирование, не встроенный виджет.
+        return f"{self.event_type} @ {timezone.localtime(self.created_at):%Y-%m-%d %H:%M:%S}"
